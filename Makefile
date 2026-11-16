@@ -20,6 +20,13 @@ INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 # These files will have .d instead of .o as the output.
 CPPFLAGS := $(INC_FLAGS) -MMD -MP
 
+# Enlazamos libstdc++ y libgcc dentro del .exe en vez de depender de las DLL que
+# vienen en bin_linux/. Esas DLL fueron construidas con GCC 12 (lo dice el README
+# del repo); si el mingw-w64 instalado es de otra version, el .exe recien
+# compilado carga una libstdc++ que no le corresponde y revienta al arrancar,
+# dentro de la propia libstdc++ y antes de llegar al codigo del bot.
+LDFLAGS := -static-libgcc -static-libstdc++
+
 # The final build step.
 $(BIN_DIR)/$(TARGET_EXEC): $(OBJS)
 	$(CXX) $(OBJS) -o $@ $(LDFLAGS)
