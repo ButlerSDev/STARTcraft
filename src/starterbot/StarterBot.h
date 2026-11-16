@@ -13,6 +13,14 @@ class StarterBot
     // Un MineralField por cada mineral del mapa, indexado por el ID de la unidad
     std::unordered_map<int, MineralField> m_mineralFields;
 
+    // Modo medicion: a lo mas UN obrero por mineral, para que el intervalo medido
+    // dependa del campo y no de cuantos obreros lo estan golpeando. Se alterna
+    // en el juego escribiendo /medir.
+    bool m_measurementMode = true;
+
+    // Asignacion fija obrero -> mineral mientras dura el modo medicion
+    std::unordered_map<int, int> m_workerAssignment;
+
 public:
 
     StarterBot();
@@ -23,6 +31,8 @@ public:
     void buildAdditionalSupply();
     void drawDebugInformation();
     void updateMineralFields();
+    void drawMineralRanking();
+    void assignOneWorkerPerMineral();
 
     // functions that are triggered by various BWAPI events from main.cpp
 	void onStart();

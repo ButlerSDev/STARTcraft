@@ -2,6 +2,9 @@
 #include "Tools.h"
 #include "MapTools.h"
 
+#include <algorithm>
+#include <vector>
+
 StarterBot::StarterBot()
 {
     
@@ -31,8 +34,10 @@ void StarterBot::onFrame()
     // Update our MapTools information
     m_mapTools.onFrame();
 
-    // Send our idle workers to mine minerals so they don't just stand there
-    sendIdleWorkersToMinerals();
+    // En modo medicion repartimos un obrero por mineral; si no, el comportamiento
+    // original de STARTcraft (cada obrero al mineral mas cercano).
+    if (m_measurementMode) { assignOneWorkerPerMineral(); }
+    else                   { sendIdleWorkersToMinerals(); }
 
     // Train more workers so we can gather more income
     trainAdditionalWorkers();
@@ -46,8 +51,147 @@ void StarterBot::onFrame()
     // Draw unit health bars, which brood war unfortunately does not do
     Tools::DrawUnitHealthBars();
 
+    // Ranking de los 4 minerales mas eficientes por formacion (para la exposicion)
+    drawMineralRanking();
+
     // Draw some relevent information to the screen to help us debug the bot
     drawDebugInformation();
+}
+
+// Modo medicion: a lo mas UN obrero por mineral.
+//
+// Por que: el intervalo entre bajadas de 8 depende de CUANTOS obreros golpean el
+// campo, no solo de que tan lejos esta. Con 3 obreros en un mineral las bajadas
+// llegan ~3 veces mas seguido y ese campo parece "mas eficiente" sin serlo. Para
+// comparar campos entre si hay que fijar un obrero por campo.
+void StarterBot::assignOneWorkerPerMineral()
+{
+    // 1) Limpiar asignaciones cuyo obrero o mineral ya no existe
+    for (auto it = m_workerAssignment.begin(); it != m_workerAssignment.end(); )
+    {
+        const BWAPI::Unit worker  = BWAPI::Broodwar->getUnit(it->first);
+        const BWAPI::Unit mineral = BWAPI::Broodwar->getUnit(it->second);
+
+        if (!worker || !worker->exists() || !mineral || !mineral->exists())
+        {
+            it = m_workerAssignment.erase(it);
+        }
+        else { ++it; }
+    }
+
+    // 2) Que minerales ya estan tomados
+    std::vector<int> taken;
+    for (const auto& pair : m_workerAssignment) { taken.push_back(pair.second); }
+
+    // 3) Repartir los obreros sin asignacion a minerales libres
+    for (const BWAPI::Unit worker : BWAPI::Broodwar->self()->getUnits())
+    {
+        if (!worker->getType().isWorker()) { continue; }
+        if (m_workerAssignment.count(worker->getID())) { continue; }
+
+        for (const BWAPI::Unit mineral : BWAPI::Broodwar->getMinerals())
+        {
+            if (std::find(taken.begin(), taken.end(), mineral->getID()) != taken.end()) { continue; }
+
+            m_workerAssignment[worker->getID()] = mineral->getID();
+            taken.push_back(mineral->getID());
+            worker->rightClick(mineral);
+            break;
+        }
+    }
+
+    // 4) Si un obrero asignado quedo quieto, lo volvemos a mandar a SU mineral
+    for (const auto& pair : m_workerAssignment)
+    {
+        const BWAPI::Unit worker  = BWAPI::Broodwar->getUnit(pair.first);
+        const BWAPI::Unit mineral = BWAPI::Broodwar->getUnit(pair.second);
+
+        if (worker && worker->exists() && worker->isIdle() && mineral && mineral->exists())
+        {
+            worker->rightClick(mineral);
+        }
+    }
+}
+
+// Ranking de eficiencia: los 4 minerales con MENOR promedio de frames entre
+// bajadas, separados por formacion izquierda / derecha del mapa.
+void StarterBot::drawMineralRanking()
+{
+    // Minimo de conteos antes de rankear un mineral: con 1 o 2 muestras el
+    // promedio todavia es ruido.
+    const int MIN_SAMPLES = 3;
+
+    // mapWidth() viene en build tiles de 32 px; el centro parte el mapa en dos.
+    const int mapCenterX = (BWAPI::Broodwar->mapWidth() * 32) / 2;
+
+    std::vector<const MineralField*> izquierda;
+    std::vector<const MineralField*> derecha;
+
+    for (const auto& pair : m_mineralFields)
+    {
+        const MineralField& field = pair.second;
+        if (field.getSamples() < MIN_SAMPLES) { continue; }
+
+        if (field.getPosition().x < mapCenterX) { izquierda.push_back(&field); }
+        else                                    { derecha.push_back(&field); }
+    }
+
+    // Menor promedio = mas eficiente = primero
+    const auto porPromedio = [](const MineralField* a, const MineralField* b)
+    {
+        return a->getAverage() < b->getAverage();
+    };
+    std::sort(izquierda.begin(), izquierda.end(), porPromedio);
+    std::sort(derecha.begin(),   derecha.end(),   porPromedio);
+
+    // La raza importa: el obrero de cada raza se mueve a distinta velocidad, asi
+    // que el ranking hay que sacarlo en una partida por raza.
+    const std::string raza = BWAPI::Broodwar->self()->getRace().getName();
+
+    int y = 20;
+    BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y), "TOP 4 MINERALES - raza: %s", raza.c_str());
+    y += 20;
+
+    const auto dibujarGrupo = [&](const char* titulo, const std::vector<const MineralField*>& grupo)
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y), "%s", titulo);
+        y += 10;
+
+        if (grupo.empty())
+        {
+            BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y), "  (sin datos aun)");
+            y += 10;
+            return;
+        }
+
+        const int n = std::min((int)grupo.size(), 4);
+        for (int i = 0; i < n; i++)
+        {
+            const MineralField* field = grupo[i];
+            const BWAPI::TilePosition tile(field->getPosition());
+
+            BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+                "  %d) tile (%d,%d)  prom %.2f  (%d muestras)",
+                i + 1, tile.x, tile.y, field->getAverage(), field->getSamples());
+            y += 10;
+        }
+    };
+
+    dibujarGrupo("FORMACION IZQUIERDA", izquierda);
+    y += 5;
+    dibujarGrupo("FORMACION DERECHA", derecha);
+
+    // Marcar en el mapa los 4 mejores de cada formacion con un circulo
+    const auto marcar = [](const std::vector<const MineralField*>& grupo)
+    {
+        const int n = std::min((int)grupo.size(), 4);
+        for (int i = 0; i < n; i++)
+        {
+            BWAPI::Broodwar->drawCircleMap(grupo[i]->getPosition(), 20, BWAPI::Colors::Green);
+        }
+    };
+    marcar(izquierda);
+    marcar(derecha);
 }
 
 // Pregunta 1: actualiza y dibuja el contador de cada campo de minerales
@@ -145,6 +289,9 @@ void StarterBot::onUnitDestroy(BWAPI::Unit unit)
     {
         m_mineralFields.erase(unit->getID());
     }
+
+    // Si muere un obrero, soltamos su asignacion para que otro tome ese mineral
+    m_workerAssignment.erase(unit->getID());
 }
 
 // Called whenever a unit is morphed, with a pointer to the unit
@@ -160,6 +307,13 @@ void StarterBot::onSendText(std::string text)
     if (text == "/map")
     {
         m_mapTools.toggleDraw();
+    }
+    else if (text == "/medir")
+    {
+        // Alterna entre un obrero por mineral (medicion) y el reparto original
+        m_measurementMode = !m_measurementMode;
+        m_workerAssignment.clear();
+        BWAPI::Broodwar->printf("Modo medicion: %s", m_measurementMode ? "ON" : "OFF");
     }
 }
 
