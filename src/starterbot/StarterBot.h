@@ -1,12 +1,17 @@
 #pragma once
 
 #include "MapTools.h"
+#include "MineralField.h"
 
 #include <BWAPI.h>
+#include <unordered_map>
 
 class StarterBot
 {
     MapTools m_mapTools;
+
+    // Un MineralField por cada mineral del mapa, indexado por el ID de la unidad
+    std::unordered_map<int, MineralField> m_mineralFields;
 
 public:
 
@@ -17,6 +22,7 @@ public:
     void trainAdditionalWorkers();
     void buildAdditionalSupply();
     void drawDebugInformation();
+    void updateMineralFields();
 
     // functions that are triggered by various BWAPI events from main.cpp
 	void onStart();

@@ -17,6 +17,10 @@ void StarterBot::onStart()
     // Enable the flag that tells BWAPI top let users enter input while bot plays
     BWAPI::Broodwar->enableFlag(BWAPI::Flag::UserInput);
 
+    // Este bot solo mide datos: con informacion completa del mapa vemos TODOS los
+    // minerales (no solo los 9 cercanos a la base) y su cantidad en todo momento.
+    BWAPI::Broodwar->enableFlag(BWAPI::Flag::CompleteMapInformation);
+
     // Call MapTools OnStart
     m_mapTools.onStart();
 }
@@ -36,11 +40,31 @@ void StarterBot::onFrame()
     // Build more supply if we are going to run out soon
     buildAdditionalSupply();
 
+    // Medir los frames entre extracciones de cada campo de minerales
+    updateMineralFields();
+
     // Draw unit health bars, which brood war unfortunately does not do
     Tools::DrawUnitHealthBars();
 
     // Draw some relevent information to the screen to help us debug the bot
     drawDebugInformation();
+}
+
+// Pregunta 1: actualiza y dibuja el contador de cada campo de minerales
+void StarterBot::updateMineralFields()
+{
+    for (BWAPI::Unit mineral : BWAPI::Broodwar->getMinerals())
+    {
+        // Si es la primera vez que vemos este mineral, creamos su MineralField
+        auto it = m_mineralFields.find(mineral->getID());
+        if (it == m_mineralFields.end())
+        {
+            it = m_mineralFields.emplace(mineral->getID(), MineralField(mineral)).first;
+        }
+
+        it->second.onFrame();
+        it->second.draw();
+    }
 }
 
 // Send our idle workers to mine minerals so they don't just stand there
@@ -116,7 +140,11 @@ void StarterBot::onEnd(bool isWinner)
 // Called whenever a unit is destroyed, with a pointer to the unit
 void StarterBot::onUnitDestroy(BWAPI::Unit unit)
 {
-	
+    // Un mineral agotado desaparece del mapa: liberamos su MineralField
+    if (unit->getType().isMineralField())
+    {
+        m_mineralFields.erase(unit->getID());
+    }
 }
 
 // Called whenever a unit is morphed, with a pointer to the unit
