@@ -52,18 +52,20 @@ void MineralField::draw() const
 {
     if (!m_unit || !m_unit->exists()) { return; }
 
-    // El texto se ubica a la izquierda del centro del mineral para no taparlo
-    // ni pisar a los vecinos. Ajustar el offset viendolo en pantalla.
-    const BWAPI::Position textPos(m_position.x - 32, m_position.y - 16);
+    // UNA sola linea. Con tres lineas el texto de un mineral pisaba el del
+    // vecino de abajo: en un yacimiento los campos estan a ~32 px uno de otro y
+    // el bloque de tres lineas mide mas que eso. El orden es
+    // ultimo / promedio de los ultimos 20 / frames desde la ultima bajada.
+    const BWAPI::Position textPos(m_position.x - 30, m_position.y - 6);
 
     // Sin acentos: la fuente de StarCraft no los dibuja bien.
     if (m_history.empty())
     {
-        BWAPI::Broodwar->drawTextMap(textPos, "Ultimo: -\nProm: -\nAhora: %d", m_framesSinceDrop);
+        BWAPI::Broodwar->drawTextMap(textPos, "-/-/%d", m_framesSinceDrop);
     }
     else
     {
-        BWAPI::Broodwar->drawTextMap(textPos, "Ultimo: %d\nProm: %.2f\nAhora: %d",
+        BWAPI::Broodwar->drawTextMap(textPos, "%d/%.2f/%d",
                                      m_lastCount, getAverage(), m_framesSinceDrop);
     }
 }

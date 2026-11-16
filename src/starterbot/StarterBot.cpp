@@ -3,6 +3,7 @@
 #include "MapTools.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include <vector>
 
@@ -194,9 +195,30 @@ void StarterBot::drawMineralRanking()
         }
     };
 
-    dibujarGrupo("FORMACION IZQUIERDA", izquierda);
+    // De que lado esta NUESTRA base. Importa para leer los numeros: en nuestra
+    // formacion controlamos la asignacion (un obrero por mineral), pero en la
+    // del otro jugador no sabemos cuantos obreros golpean cada campo, asi que
+    // sus promedios bajan solos conforme el rival suma obreros y no son
+    // comparables con los nuestros.
+    const BWAPI::Unit depot = Tools::GetDepot();
+    const bool tenemosBase = (depot != nullptr);
+    const bool nuestraEsIzquierda = tenemosBase && (depot->getPosition().x < mapCenterX);
+
+    const char* etiquetaIzq = !tenemosBase     ? ""
+                            : nuestraEsIzquierda ? " (nuestra base)"
+                                                 : " (otro jugador)";
+    const char* etiquetaDer = !tenemosBase     ? ""
+                            : nuestraEsIzquierda ? " (otro jugador)"
+                                                 : " (nuestra base)";
+
+    char tituloIzq[64];
+    char tituloDer[64];
+    snprintf(tituloIzq, sizeof(tituloIzq), "FORMACION IZQUIERDA%s", etiquetaIzq);
+    snprintf(tituloDer, sizeof(tituloDer), "FORMACION DERECHA%s", etiquetaDer);
+
+    dibujarGrupo(tituloIzq, izquierda);
     y += 5;
-    dibujarGrupo("FORMACION DERECHA", derecha);
+    dibujarGrupo(tituloDer, derecha);
 
     // Marcar en el mapa los 4 mejores de cada formacion con un circulo
     const auto marcar = [](const std::vector<const MineralField*>& grupo)
