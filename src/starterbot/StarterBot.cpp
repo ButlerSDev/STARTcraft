@@ -3,6 +3,7 @@
 #include "MapTools.h"
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 StarterBot::StarterBot()
@@ -89,14 +90,30 @@ void StarterBot::assignOneWorkerPerMineral()
         if (!worker->getType().isWorker()) { continue; }
         if (m_workerAssignment.count(worker->getID())) { continue; }
 
+        // Elegir el mineral libre MAS CERCANO a este obrero. Si tomaramos el
+        // primero de la lista, como CompleteMapInformation nos muestra los
+        // minerales de todo el mapa, el obrero podria irse caminando al otro
+        // extremo y el intervalo medido seria basura.
+        BWAPI::Unit mejorMineral = nullptr;
+        int mejorDistancia = std::numeric_limits<int>::max();
+
         for (const BWAPI::Unit mineral : BWAPI::Broodwar->getMinerals())
         {
             if (std::find(taken.begin(), taken.end(), mineral->getID()) != taken.end()) { continue; }
 
-            m_workerAssignment[worker->getID()] = mineral->getID();
-            taken.push_back(mineral->getID());
-            worker->rightClick(mineral);
-            break;
+            const int distancia = worker->getDistance(mineral);
+            if (distancia < mejorDistancia)
+            {
+                mejorDistancia = distancia;
+                mejorMineral = mineral;
+            }
+        }
+
+        if (mejorMineral)
+        {
+            m_workerAssignment[worker->getID()] = mejorMineral->getID();
+            taken.push_back(mejorMineral->getID());
+            worker->rightClick(mejorMineral);
         }
     }
 
