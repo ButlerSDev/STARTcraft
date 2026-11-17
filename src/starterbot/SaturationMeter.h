@@ -1,54 +1,88 @@
 #pragma once
 
 #include <BWAPI.h>
+#include <vector>
 
-// Pregunta 2: mide el INGRESO DE MINERALES bajo una configuracion fija de
-// obreros por campo, para responder cuantos obreros por mineral conviene poner.
+// Resultado de una fase del experimento: una configuracion medida de principio a fin.
+struct SaturationResult
+{
+    int    workersPerMineral = 0;
+    int    patches = 0;
+    int    workers = 0;
+    int    frames = 0;
+    int    gathered = 0;
+    double rate = 0.0;        // minerales por cada 1000 frames
+    double perWorker = 0.0;   // lo mismo, dividido entre los obreros
+    bool   ok = true;         // false si la fase se abandono sin poder medir
+};
+
+// Pregunta 2: mide el INGRESO DE MINERALES bajo distintas cantidades de obreros
+// por campo, para responder cuantos obreros por mineral conviene poner.
 //
-// La idea del experimento: el total recolectado siempre sube al agregar obreros,
-// porque hay mas gente trabajando. Lo que interesa es el aporte POR OBRERO, que
+// El total recolectado siempre sube al agregar obreros, porque hay mas gente
+// trabajando; eso no prueba nada. Lo que interesa es el aporte POR OBRERO, que
 // cae conforme los obreros empiezan a hacer cola sobre el mismo campo. Ese punto
-// donde agregar un obrero mas casi no suma es la saturacion.
+// donde sumar un obrero ya casi no aporta es la saturacion.
 //
-// Cada corrida se hace con un valor distinto de obreros por campo (/sat 1, 2, 3)
-// y se anota la tasa resultante.
+// Por defecto el experimento corre solo: pasa por 1, 2 y 3 obreros por campo,
+// mide cada configuracion y al terminar deja la tabla en pantalla. Con /sat N se
+// puede fijar una configuracion a mano.
 class SaturationMeter
 {
-    // Frames que se descartan tras fijar una configuracion. Al cambiar el numero
-    // de obreros por campo, el reparto tarda en estabilizarse (los obreros tienen
-    // que caminar a su nuevo campo), y contar esos frames ensucia la tasa.
+    // Frames que se descartan tras completar una configuracion. Aunque ya esten
+    // todos los obreros, tienen que caminar hasta su campo antes de que la tasa
+    // signifique algo.
     static const int WARMUP_FRAMES = 1000;
 
+    // Duracion de la ventana de medicion de cada configuracion.
+    static const int MEASURE_FRAMES = 5000;
+
+    // Si una configuracion no logra reunir sus obreros en este tiempo (suministro
+    // bloqueado, obreros muriendo), se abandona y se pasa a la siguiente, en vez
+    // de dejar el experimento colgado sin explicacion.
+    static const int STALL_FRAMES = 15000;
+
+    std::vector<int> m_plan;              // configuraciones a recorrer: 1, 2, 3
+    std::vector<SaturationResult> m_results;
+
+    size_t m_phase = 0;
+    bool   m_auto = true;
+    bool   m_finished = false;
+    bool   m_started = false;   // false hasta la primera llamada dentro de la partida
+
     int m_workersPerMineral = 1;
+    int m_phaseStartFrame = 0;      // frame en que arranco la fase actual
     int m_readySince = -1;          // frame desde el que la configuracion esta completa
     int m_windowStartFrame = -1;    // -1 mientras no hay ventana abierta
-    int m_windowStartMinerals = 0;  // minerales acumulados al abrir la ventana
+    int m_windowStartMinerals = 0;
+
+    void beginPhase(size_t phase);
+    void recordAndAdvance(int patches, int workers, bool ok);
 
 public:
 
-    // Fija los obreros por campo y reinicia la medicion desde cero.
-    void setWorkersPerMineral(int n);
+    SaturationMeter();
+
     int  getWorkersPerMineral() const { return m_workersPerMineral; }
+
+    // Fija una configuracion a mano y abandona el recorrido automatico.
+    void setWorkersPerMineral(int n);
+
+    // Reinicia el recorrido automatico desde la primera configuracion.
+    void restartAuto();
 
     // Llamar una vez por frame.
     //
     // configReady indica si en este frame hay exactamente los obreros que pide la
-    // configuracion. Mientras no los haya, no se mide: al cambiar de /sat 1 a
-    // /sat 2 el bot tiene que entrenar obreros nuevos, y contar esos frames
-    // mezclaria una economia de 9 obreros con una de 18. Si la configuracion se
-    // rompe a mitad de camino (muere un obrero), la ventana se descarta y vuelve
-    // a empezar, porque ya no mide lo mismo.
-    void onFrame(bool configReady);
+    // configuracion. Mientras no los haya no se mide: al pasar de 1 a 2 obreros
+    // por campo el bot tiene que entrenar mas, y contar esos frames mezclaria una
+    // economia de 9 obreros con una de 18. Si la configuracion se rompe a mitad
+    // de camino, la ventana se descarta y la fase vuelve a empezar.
+    void onFrame(bool configReady, int patches, int workers);
 
-    // patches  = campos de minerales de nuestra base
-    // workers  = obreros efectivamente asignados a un campo
     void draw(int patches, int workers) const;
 
-    bool   isMeasuring() const { return m_windowStartFrame >= 0; }
     int    getElapsedFrames() const;
     int    getGathered() const;
-
-    // Tasa en minerales por cada 1000 frames. Se usa frames y no segundos porque
-    // el frame es la unidad del juego y no depende de la velocidad configurada.
     double getRatePer1000Frames() const;
 };

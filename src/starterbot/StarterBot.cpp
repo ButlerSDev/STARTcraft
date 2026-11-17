@@ -44,9 +44,11 @@ void StarterBot::onFrame()
 
     // Pregunta 2: solo medimos cuando estan exactamente los obreros que pide la
     // configuracion, ni uno mas ni uno menos.
-    const int objetivo = (int)getBaseMinerals().size() * m_saturation.getWorkersPerMineral();
-    const bool configCompleta = (objetivo > 0) && ((int)m_workerAssignment.size() == objetivo);
-    m_saturation.onFrame(configCompleta);
+    const int campos = (int)getBaseMinerals().size();
+    const int asignados = (int)m_workerAssignment.size();
+    const int objetivo = campos * m_saturation.getWorkersPerMineral();
+    const bool configCompleta = (objetivo > 0) && (asignados == objetivo);
+    m_saturation.onFrame(configCompleta, campos, asignados);
 
     // Train more workers so we can gather more income
     trainAdditionalWorkers();
@@ -400,10 +402,18 @@ void StarterBot::onSendText(std::string text)
         m_workerAssignment.clear();
         BWAPI::Broodwar->printf("Modo medicion: %s", m_measurementMode ? "ON" : "OFF");
     }
+    else if (text == "/sat auto")
+    {
+        // Reinicia el recorrido automatico 1 -> 2 -> 3 desde cero.
+        // Va ANTES que la rama de /sat N, porque "/sat auto" tambien empieza
+        // con "/sat " y si no se comprueba primero nunca se alcanzaria.
+        m_saturation.restartAuto();
+        m_workerAssignment.clear();
+        BWAPI::Broodwar->printf("Saturacion: recorrido automatico reiniciado");
+    }
     else if (text.rfind("/sat ", 0) == 0)
     {
-        // /sat N fija N obreros por campo y reinicia la medicion de saturacion.
-        // Una corrida por cada N: 1, 2, 3.
+        // /sat N fija N obreros por campo a mano y abandona el automatico.
         const int n = std::atoi(text.substr(5).c_str());
         if (n >= 1 && n <= 10)
         {
@@ -413,7 +423,7 @@ void StarterBot::onSendText(std::string text)
         }
         else
         {
-            BWAPI::Broodwar->printf("Uso: /sat N, con N entre 1 y 10");
+            BWAPI::Broodwar->printf("Uso: /sat N (N entre 1 y 10), o /sat auto");
         }
     }
 }
