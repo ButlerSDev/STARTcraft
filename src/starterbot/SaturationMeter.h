@@ -32,10 +32,14 @@ class SaturationMeter
     // Frames que se descartan tras completar una configuracion. Aunque ya esten
     // todos los obreros, tienen que caminar hasta su campo antes de que la tasa
     // signifique algo.
-    static const int WARMUP_FRAMES = 1000;
+    static const int WARMUP_FRAMES = 500;
 
-    // Duracion de la ventana de medicion de cada configuracion.
-    static const int MEASURE_FRAMES = 5000;
+    // Duracion de la ventana de medicion de cada configuracion. Ajustada hacia
+    // abajo a proposito: el bot no se defiende, y entrenar hasta 27 obreros ya
+    // consume miles de frames, asi que ventanas largas hacen que el rival llegue
+    // antes de terminar la tercera fase. Con 3000 frames la tasa ya es estable
+    // (son varias decenas de viajes por obrero) y el experimento cabe.
+    static const int MEASURE_FRAMES = 3000;
 
     // Si una configuracion no logra reunir sus obreros en este tiempo (suministro
     // bloqueado, obreros muriendo), se abandona y se pasa a la siguiente, en vez
