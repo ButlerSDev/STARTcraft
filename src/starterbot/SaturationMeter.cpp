@@ -149,9 +149,29 @@ void SaturationMeter::draw(int patches, int workers) const
 {
     int y = 160;
 
+    // El titulo se arma sin ternarios dentro del formato. Una captura anterior
+    // mostro "COMPLETO" junto a "fase 1/3", que son estados incompatibles, asi
+    // que conviene que cada linea diga una sola cosa.
+    if (m_finished)
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y), "SATURACION - COMPLETO");
+    }
+    else if (m_auto)
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y), "SATURACION - automatico");
+    }
+    else
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y), "SATURACION - manual");
+    }
+    y += 10;
+
+    // Estado interno en crudo, para diagnosticar. Si una captura vuelve a
+    // mostrar algo imposible, estos numeros dicen por que.
     BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
-        "SATURACION (%s)%s", m_auto ? "automatico" : "manual",
-        m_finished ? " - COMPLETO" : "");
+        "  [fin=%d res=%d fase=%d ready=%d win=%d frame=%d]",
+        m_finished ? 1 : 0, (int)m_results.size(), (int)m_phase,
+        m_readySince, m_windowStartFrame, BWAPI::Broodwar->getFrameCount());
     y += 10;
 
     if (!m_finished)
