@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <vector>
 
@@ -38,8 +39,14 @@ void StarterBot::onFrame()
 
     // En modo medicion repartimos un obrero por mineral; si no, el comportamiento
     // original de STARTcraft (cada obrero al mineral mas cercano).
-    if (m_measurementMode) { assignOneWorkerPerMineral(); }
+    if (m_measurementMode) { assignWorkersToMinerals(); }
     else                   { sendIdleWorkersToMinerals(); }
+
+    // Pregunta 2: solo medimos cuando estan exactamente los obreros que pide la
+    // configuracion, ni uno mas ni uno menos.
+    const int objetivo = (int)getBaseMinerals().size() * m_saturation.getWorkersPerMineral();
+    const bool configCompleta = (objetivo > 0) && ((int)m_workerAssignment.size() == objetivo);
+    m_saturation.onFrame(configCompleta);
 
     // Train more workers so we can gather more income
     trainAdditionalWorkers();
@@ -56,6 +63,13 @@ void StarterBot::onFrame()
     // Ranking de los 4 minerales mas eficientes por formacion (para la exposicion)
     drawMineralRanking();
 
+    // Panel de la Pregunta 2. Contamos los obreros ASIGNADOS, no todos los que
+    // tenemos: los que sobran estan parados y no aportan a la tasa.
+    if (m_measurementMode)
+    {
+        m_saturation.draw((int)getBaseMinerals().size(), (int)m_workerAssignment.size());
+    }
+
     // Draw some relevent information to the screen to help us debug the bot
     drawDebugInformation();
 }
@@ -66,8 +80,32 @@ void StarterBot::onFrame()
 // campo, no solo de que tan lejos esta. Con 3 obreros en un mineral las bajadas
 // llegan ~3 veces mas seguido y ese campo parece "mas eficiente" sin serlo. Para
 // comparar campos entre si hay que fijar un obrero por campo.
-void StarterBot::assignOneWorkerPerMineral()
+// Campos de minerales de NUESTRA base: los que estan a menos de BASE_RADIUS del
+// centro de mando. El experimento solo tiene sentido sobre estos, porque son los
+// unicos cuyo numero de obreros controlamos.
+std::vector<BWAPI::Unit> StarterBot::getBaseMinerals() const
 {
+    std::vector<BWAPI::Unit> resultado;
+
+    const BWAPI::Unit depot = Tools::GetDepot();
+    if (!depot) { return resultado; }
+
+    for (const BWAPI::Unit mineral : BWAPI::Broodwar->getMinerals())
+    {
+        if (depot->getDistance(mineral) < BASE_RADIUS) { resultado.push_back(mineral); }
+    }
+    return resultado;
+}
+
+// Reparte los obreros sobre los campos de la base, con un tope de N obreros por
+// campo. N lo fija el experimento de saturacion (/sat N); con N=1 cada campo se
+// mide aislado, que es lo que necesita la Pregunta 1.
+void StarterBot::assignWorkersToMinerals()
+{
+    const int perMineral = m_saturation.getWorkersPerMineral();
+    const std::vector<BWAPI::Unit> baseMinerals = getBaseMinerals();
+    if (baseMinerals.empty()) { return; }
+
     // 1) Limpiar asignaciones cuyo obrero o mineral ya no existe
     for (auto it = m_workerAssignment.begin(); it != m_workerAssignment.end(); )
     {
@@ -81,26 +119,23 @@ void StarterBot::assignOneWorkerPerMineral()
         else { ++it; }
     }
 
-    // 2) Que minerales ya estan tomados
-    std::vector<int> taken;
-    for (const auto& pair : m_workerAssignment) { taken.push_back(pair.second); }
+    // 2) Cuantos obreros tiene ya asignados cada campo
+    std::unordered_map<int, int> ocupacion;
+    for (const auto& pair : m_workerAssignment) { ocupacion[pair.second]++; }
 
-    // 3) Repartir los obreros sin asignacion a minerales libres
+    // 3) Repartir los obreros sin asignacion a campos que no llegan al tope
     for (const BWAPI::Unit worker : BWAPI::Broodwar->self()->getUnits())
     {
         if (!worker->getType().isWorker()) { continue; }
         if (m_workerAssignment.count(worker->getID())) { continue; }
 
-        // Elegir el mineral libre MAS CERCANO a este obrero. Si tomaramos el
-        // primero de la lista, como CompleteMapInformation nos muestra los
-        // minerales de todo el mapa, el obrero podria irse caminando al otro
-        // extremo y el intervalo medido seria basura.
+        // Entre los campos con cupo libre, el MAS CERCANO a este obrero.
         BWAPI::Unit mejorMineral = nullptr;
         int mejorDistancia = std::numeric_limits<int>::max();
 
-        for (const BWAPI::Unit mineral : BWAPI::Broodwar->getMinerals())
+        for (const BWAPI::Unit mineral : baseMinerals)
         {
-            if (std::find(taken.begin(), taken.end(), mineral->getID()) != taken.end()) { continue; }
+            if (ocupacion[mineral->getID()] >= perMineral) { continue; }
 
             const int distancia = worker->getDistance(mineral);
             if (distancia < mejorDistancia)
@@ -110,10 +145,12 @@ void StarterBot::assignOneWorkerPerMineral()
             }
         }
 
+        // Sin cupo libre el obrero se queda quieto a proposito: es un obrero de
+        // mas para esta configuracion y ponerlo a minar falsearia la tasa.
         if (mejorMineral)
         {
             m_workerAssignment[worker->getID()] = mejorMineral->getID();
-            taken.push_back(mejorMineral->getID());
+            ocupacion[mejorMineral->getID()]++;
             worker->rightClick(mejorMineral);
         }
     }
@@ -274,7 +311,16 @@ void StarterBot::sendIdleWorkersToMinerals()
 void StarterBot::trainAdditionalWorkers()
 {
     const BWAPI::UnitType workerType = BWAPI::Broodwar->self()->getRace().getWorker();
-    const int workersWanted = 20;
+
+    // En modo medicion el numero de obreros es parte del experimento, no una
+    // decision libre: queremos exactamente (campos de la base) x (obreros por
+    // campo). Un obrero de mas mina por su cuenta y falsea la tasa.
+    int workersWanted = 20;
+    if (m_measurementMode)
+    {
+        workersWanted = (int)getBaseMinerals().size() * m_saturation.getWorkersPerMineral();
+    }
+
     const int workersOwned = Tools::CountUnitsOfType(workerType, BWAPI::Broodwar->self()->getUnits());
     if (workersOwned < workersWanted)
     {
@@ -349,10 +395,26 @@ void StarterBot::onSendText(std::string text)
     }
     else if (text == "/medir")
     {
-        // Alterna entre un obrero por mineral (medicion) y el reparto original
+        // Alterna entre nuestro reparto controlado y el original de STARTcraft
         m_measurementMode = !m_measurementMode;
         m_workerAssignment.clear();
         BWAPI::Broodwar->printf("Modo medicion: %s", m_measurementMode ? "ON" : "OFF");
+    }
+    else if (text.rfind("/sat ", 0) == 0)
+    {
+        // /sat N fija N obreros por campo y reinicia la medicion de saturacion.
+        // Una corrida por cada N: 1, 2, 3.
+        const int n = std::atoi(text.substr(5).c_str());
+        if (n >= 1 && n <= 10)
+        {
+            m_saturation.setWorkersPerMineral(n);
+            m_workerAssignment.clear();   // el reparto se rehace con el nuevo tope
+            BWAPI::Broodwar->printf("Saturacion: %d obrero(s) por campo. Medicion reiniciada.", n);
+        }
+        else
+        {
+            BWAPI::Broodwar->printf("Uso: /sat N, con N entre 1 y 10");
+        }
     }
 }
 
