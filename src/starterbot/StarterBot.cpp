@@ -57,6 +57,18 @@ void StarterBot::onStart()
 
     // Call MapTools OnStart
     m_mapTools.onStart();
+
+    // La Pregunta 2 se enciende sola segun el mapa. En 4Retro la partida dura
+    // unos 2 minutos, que alcanzan para el ranking de la Pregunta 1 pero no para
+    // las tres configuraciones de saturacion; en cualquier otro mapa el bot mide
+    // saturacion desde el primer frame. /sat auto y /sat N siguen funcionando.
+    if (BWAPI::Broodwar->mapFileName().find("4Retro") == std::string::npos)
+    {
+        m_saturationActive = true;
+        m_saturation.restartAuto();
+        BWAPI::Broodwar->printf("Mapa distinto de 4Retro: saturacion automatica sobre los %d campos mas cercanos",
+                                SATURATION_PATCHES);
+    }
 }
 
 // Called on each frame of the game
@@ -117,7 +129,7 @@ void StarterBot::onFrame()
     else if (m_measurementMode)
     {
         BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, 160),
-            "Pregunta 2 apagada. Escribe /sat auto para medir saturacion.");
+            "Pregunta 2 apagada en 4Retro (la partida es corta). Se enciende sola en otros mapas.");
     }
 
     // Draw some relevent information to the screen to help us debug the bot
