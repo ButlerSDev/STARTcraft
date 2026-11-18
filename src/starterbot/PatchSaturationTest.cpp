@@ -32,7 +32,8 @@ int PatchSaturationTest::countRecordedGames()
         char linea[512];
         while (std::fgets(linea, sizeof(linea), f))
         {
-            if (std::strstr(linea, "obreros=1 ")) { partidas++; }
+            // Las lineas que empiezan con # son resultados descartados.
+            if (linea[0] != '#' && std::strstr(linea, "obreros=1 ")) { partidas++; }
         }
         std::fclose(f);
     }
