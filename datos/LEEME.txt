@@ -10,4 +10,6 @@ saturacion_4retro.txt     Pregunta 2: ingreso por campo con 1, 2 y 3 obreros a l
 split_resultados.txt      bonus: minerales recolectados en los primeros 1000 frames con
                           los 4 obreros iniciales, segun la politica de reparto
 
-Las partidas 0 a 15 se jugaron en Game Type "Free For All" y desde la 16 en "Melee".
+Casi todas las partidas se jugaron con Game Type "Free For All"; el enunciado pide
+"Melee", que se uso en las ultimas. En un 1 contra 1 frente a la computadora ambos
+modos parten con las mismas unidades y recursos.
