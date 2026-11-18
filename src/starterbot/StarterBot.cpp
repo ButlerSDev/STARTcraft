@@ -11,8 +11,9 @@
 namespace
 {
     // Campos mas eficientes de 4Retro1.2_1.16-Backport.scx para Terran, de mas a
-    // menos eficiente. El mapa y la raza no cambian, asi que el ranking medido es
-    // un dato fijo y va como constante.
+    // menos eficiente. Es el punto de partida mientras no exista el archivo de
+    // ranking de Terran en ese mapa; cuando existe, manda el archivo, que acumula
+    // las mediciones de todas las partidas.
     //
     // Origen: ranking de la Pregunta 1, formacion izquierda (nuestra base), un
     // obrero por campo, partida del 18/11/2026. Entre parentesis, el promedio de
@@ -27,7 +28,12 @@ namespace
         BWAPI::TilePosition(6, 13),   // 171.75 frames, 12 muestras
         BWAPI::TilePosition(3, 8),    // 173.25 frames, 12 muestras
     };
+    const double RETRO_TERRAN_IZQUIERDA_PROM[] = { 153.56, 155.54, 171.75, 173.25 };
+    const int    RETRO_TERRAN_IZQUIERDA_MUESTRAS[] = { 9, 13, 12, 12 };
     const int RETRO_TERRAN_IZQUIERDA_N = sizeof(RETRO_TERRAN_IZQUIERDA) / sizeof(RETRO_TERRAN_IZQUIERDA[0]);
+
+    // Un campo entra al ranking con al menos estas muestras, igual que en pantalla.
+    const int MIN_SAMPLES_RANKING = 3;
 }
 
 StarterBot::StarterBot()
@@ -58,6 +64,9 @@ void StarterBot::onFrame()
 {
     // Update our MapTools information
     m_mapTools.onFrame();
+
+    // El ranking guardado se carga una vez, en cuanto se sabe donde esta la base.
+    if (m_rankingFile.empty()) { loadSavedRanking(); }
 
     // En modo medicion repartimos un obrero por mineral; si no, el comportamiento
     // original de STARTcraft (cada obrero al mineral mas cercano).
@@ -162,53 +171,127 @@ std::vector<BWAPI::Unit> StarterBot::getMeasuredMinerals() const
     return campos;
 }
 
-// Posicion del campo en el ranking de eficiencia (0 = el mejor), o -1 si el
-// campo no esta en el ranking o si la partida no es Terran en 4Retro. La
-// posicion se compara igual que en el ranking en pantalla: el tile del centro.
+// Posicion del campo en el ranking guardado (0 = el mejor), o -1 si el campo no
+// esta en el ranking o si todavia no hay ranking para este mapa, raza y lado.
+// La posicion se compara igual que en el ranking en pantalla: el tile del centro.
 int StarterBot::efficiencyRank(BWAPI::Unit mineral) const
 {
-    if (BWAPI::Broodwar->self()->getRace() != BWAPI::Races::Terran) { return -1; }
-    if (BWAPI::Broodwar->mapFileName().find("4Retro") == std::string::npos) { return -1; }
-
     const BWAPI::TilePosition tile(mineral->getPosition());
-    for (int i = 0; i < RETRO_TERRAN_IZQUIERDA_N; i++)
+    for (size_t i = 0; i < m_savedRanking.size(); i++)
     {
-        if (RETRO_TERRAN_IZQUIERDA[i] == tile) { return i; }
+        if (m_savedRanking[i].tile == tile) { return (int)i; }
     }
     return -1;
 }
 
-// Escribe el ranking completo de los campos de NUESTRA base en
-// ranking_minerales.txt, de mas a menos eficiente. En pantalla solo caben 4;
-// este archivo da el orden completo para completar las constantes.
+// Carga el ranking guardado para este mapa, esta raza y este lado. Un archivo
+// por combinacion: ranking_<mapa>_<raza>_<lado>.txt, en la carpeta desde la que
+// se lanza el bot. Si no existe y la partida es Terran a la izquierda de 4Retro,
+// se parte de las constantes medidas.
+void StarterBot::loadSavedRanking()
+{
+    const BWAPI::Unit depot = Tools::GetDepot();
+    if (!depot) { return; }
+
+    const bool izquierda = depot->getPosition().x < BWAPI::Broodwar->mapWidth() * 16;
+    const std::string mapa = BWAPI::Broodwar->mapFileName();
+    const std::string raza = BWAPI::Broodwar->self()->getRace().getName();
+
+    m_rankingFile = "ranking_" + mapa + "_" + raza + "_" + (izquierda ? "izquierda" : "derecha") + ".txt";
+    m_savedRanking.clear();
+
+    if (std::FILE* f = std::fopen(m_rankingFile.c_str(), "r"))
+    {
+        char linea[256];
+        while (std::fgets(linea, sizeof(linea), f))
+        {
+            if (linea[0] == '#') { continue; }
+            RankEntry e;
+            int x = 0, y = 0;
+            if (std::sscanf(linea, "%d %d %lf %d", &x, &y, &e.average, &e.samples) == 4)
+            {
+                e.tile = BWAPI::TilePosition(x, y);
+                m_savedRanking.push_back(e);
+            }
+        }
+        std::fclose(f);
+    }
+    else if (raza == "Terran" && izquierda && mapa.find("4Retro") != std::string::npos)
+    {
+        for (int i = 0; i < RETRO_TERRAN_IZQUIERDA_N; i++)
+        {
+            RankEntry e;
+            e.tile = RETRO_TERRAN_IZQUIERDA[i];
+            e.average = RETRO_TERRAN_IZQUIERDA_PROM[i];
+            e.samples = RETRO_TERRAN_IZQUIERDA_MUESTRAS[i];
+            m_savedRanking.push_back(e);
+        }
+    }
+
+    std::sort(m_savedRanking.begin(), m_savedRanking.end(), [](const RankEntry& a, const RankEntry& b)
+    {
+        return a.average < b.average;
+    });
+
+    BWAPI::Broodwar->printf("Ranking guardado: %d campos (%s)", (int)m_savedRanking.size(), m_rankingFile.c_str());
+}
+
+// Escribe el ranking de los campos de NUESTRA base, de mas a menos eficiente,
+// sumando lo medido en esta partida a lo que ya estaba guardado. Cada campo se
+// combina como promedio ponderado por muestras. Se parte siempre de lo cargado
+// al inicio, asi que reescribir el archivo varias veces en la misma partida no
+// cuenta dos veces las mismas muestras.
 void StarterBot::writeBaseRanking() const
 {
-    std::vector<const MineralField*> campos;
+    if (m_rankingFile.empty()) { return; }
+
+    std::vector<RankEntry> combinado = m_savedRanking;
+
     for (const BWAPI::Unit mineral : getBaseMinerals())
     {
         const auto it = m_mineralFields.find(mineral->getID());
-        if (it != m_mineralFields.end() && it->second.getSamples() >= 3) { campos.push_back(&it->second); }
+        if (it == m_mineralFields.end()) { continue; }
+
+        const MineralField& field = it->second;
+        if (field.getSamples() < MIN_SAMPLES_RANKING) { continue; }
+
+        const BWAPI::TilePosition tile(field.getPosition());
+        bool encontrado = false;
+        for (RankEntry& e : combinado)
+        {
+            if (e.tile != tile) { continue; }
+            const int total = e.samples + field.getSamples();
+            e.average = (e.average * e.samples + field.getAverage() * field.getSamples()) / total;
+            e.samples = total;
+            encontrado = true;
+            break;
+        }
+        if (!encontrado)
+        {
+            RankEntry e;
+            e.tile = tile;
+            e.average = field.getAverage();
+            e.samples = field.getSamples();
+            combinado.push_back(e);
+        }
     }
-    std::sort(campos.begin(), campos.end(), [](const MineralField* a, const MineralField* b)
+
+    std::sort(combinado.begin(), combinado.end(), [](const RankEntry& a, const RankEntry& b)
     {
-        return a->getAverage() < b->getAverage();
+        return a.average < b.average;
     });
 
-    std::FILE* f = std::fopen("ranking_minerales.txt", "w");
+    std::FILE* f = std::fopen(m_rankingFile.c_str(), "w");
     if (!f) { return; }
 
-    const BWAPI::Unit depot = Tools::GetDepot();
-    std::fprintf(f, "Mapa %s, raza %s, frame %d, base %s\n",
+    std::fprintf(f, "# Mapa %s, raza %s, actualizado en el frame %d\n",
                  BWAPI::Broodwar->mapFileName().c_str(),
                  BWAPI::Broodwar->self()->getRace().getName().c_str(),
-                 BWAPI::Broodwar->getFrameCount(),
-                 !depot ? "?" : (depot->getPosition().x < BWAPI::Broodwar->mapWidth() * 16 ? "izquierda" : "derecha"));
-
-    for (size_t i = 0; i < campos.size(); i++)
+                 BWAPI::Broodwar->getFrameCount());
+    std::fprintf(f, "# tile_x tile_y promedio_frames muestras  (de mas a menos eficiente)\n");
+    for (const RankEntry& e : combinado)
     {
-        const BWAPI::TilePosition tile(campos[i]->getPosition());
-        std::fprintf(f, "%d) tile (%d,%d)  prom %.2f  (%d muestras)\n",
-                     (int)i + 1, tile.x, tile.y, campos[i]->getAverage(), campos[i]->getSamples());
+        std::fprintf(f, "%d %d %.2f %d\n", e.tile.x, e.tile.y, e.average, e.samples);
     }
     std::fclose(f);
 }

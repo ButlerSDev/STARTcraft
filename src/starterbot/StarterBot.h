@@ -6,6 +6,7 @@
 
 #include <BWAPI.h>
 #include <unordered_map>
+#include <string>
 #include <vector>
 
 class StarterBot
@@ -42,6 +43,18 @@ class StarterBot
     SaturationMeter m_saturation;
     bool m_saturationActive = false;
 
+    // Ranking de eficiencia guardado de partidas anteriores, para este mapa, esta
+    // raza y este lado del mapa. Se carga al empezar la partida y decide a que
+    // campos van primero los obreros.
+    struct RankEntry
+    {
+        BWAPI::TilePosition tile;
+        double average = 0.0;   // frames entre bajadas
+        int    samples = 0;     // muestras acumuladas en todas las partidas
+    };
+    std::vector<RankEntry> m_savedRanking;
+    std::string m_rankingFile;          // vacio hasta que se sabe de que lado estamos
+
 public:
 
     StarterBot();
@@ -57,6 +70,7 @@ public:
     std::vector<BWAPI::Unit> getBaseMinerals() const;
     std::vector<BWAPI::Unit> getMeasuredMinerals() const;
     int efficiencyRank(BWAPI::Unit mineral) const;
+    void loadSavedRanking();
     void writeBaseRanking() const;
 
     // functions that are triggered by various BWAPI events from main.cpp
