@@ -3,6 +3,7 @@
 #include "MapTools.h"
 #include "MineralField.h"
 #include "SaturationMeter.h"
+#include "PatchSaturationTest.h"
 
 #include <BWAPI.h>
 #include <unordered_map>
@@ -64,6 +65,13 @@ class StarterBot
     int  m_splitPolicy = SPLIT_NONE;
     bool m_splitDone = false;
     bool m_ignoreRanking = false;       // true mientras el split reparte por distancia
+
+    // Pregunta 2 en 4Retro: una de cada tres partidas mide la saturacion en
+    // paralelo (1, 2 y 3 obreros en tres campos a la vez) en lugar del split y el
+    // ranking. Ver PatchSaturationTest.
+    PatchSaturationTest m_patchTest;
+    bool m_patchTestActive = false;
+    int  m_patchRotation = 0;
 
 public:
 

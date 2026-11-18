@@ -72,19 +72,41 @@ void StarterBot::onStart()
     }
     else
     {
-        // Bonus del split: la politica de esta partida es la siguiente en la
-        // rotacion, segun cuantas partidas ya hay anotadas en el archivo.
-        int anotadas = 0;
-        if (std::FILE* f = std::fopen("split_resultados.txt", "r"))
+        // En 4Retro cada partida tiene un turno, contado en partidas_4retro.txt.
+        // De cada tres partidas, dos hacen el split (bonus) y luego el ranking de
+        // la Pregunta 1, y la tercera mide la Pregunta 2 en paralelo. Asi todo se
+        // mide en el mapa de la exposicion sin escribir comandos.
+        int partida = 0;
+        if (std::FILE* f = std::fopen("partidas_4retro.txt", "r"))
         {
             char linea[256];
             while (std::fgets(linea, sizeof(linea), f))
             {
-                if (std::strncmp(linea, "politica=", 9) == 0) { anotadas++; }
+                if (std::strncmp(linea, "partida=", 8) == 0) { partida++; }
             }
             std::fclose(f);
         }
-        m_splitPolicy = anotadas % 3;
+
+        const int vuelta = partida / 3;
+        if (partida % 3 == 2)
+        {
+            m_patchTestActive = true;
+            m_patchRotation = vuelta % 3;
+        }
+        else
+        {
+            // Las partidas de split de cada vuelta son la 0 y la 1, asi que el
+            // numero de partidas de split anteriores es 2 * vuelta + (partida % 3).
+            m_splitPolicy = (2 * vuelta + partida % 3) % 3;
+        }
+
+        if (std::FILE* f = std::fopen("partidas_4retro.txt", "a"))
+        {
+            std::fprintf(f, "partida=%d  raza=%s  modo=%s\n", partida,
+                         BWAPI::Broodwar->self()->getRace().getName().c_str(),
+                         m_patchTestActive ? "saturacion" : "split+ranking");
+            std::fclose(f);
+        }
     }
 }
 
@@ -163,6 +185,26 @@ void StarterBot::onFrame()
     // El ranking guardado se carga una vez, en cuanto se sabe donde esta la base.
     if (m_rankingFile.empty()) { loadSavedRanking(); }
 
+    // Pregunta 2 en 4Retro: los tres campos mas cercanos al centro de mando,
+    // elegidos una vez, en cuanto se sabe donde esta la base.
+    if (m_patchTestActive && !m_patchTest.isSetUp())
+    {
+        const BWAPI::Unit depot = Tools::GetDepot();
+        std::vector<BWAPI::Unit> campos = getBaseMinerals();
+        if (depot && campos.size() >= 3)
+        {
+            std::sort(campos.begin(), campos.end(), [depot](BWAPI::Unit a, BWAPI::Unit b)
+            {
+                const int da = depot->getDistance(a);
+                const int db = depot->getDistance(b);
+                if (da != db) { return da < db; }
+                return a->getID() < b->getID();
+            });
+            campos.resize(3);
+            m_patchTest.setup(campos, m_patchRotation);
+        }
+    }
+
     // Bonus del split: los primeros SPLIT_FRAMES los 4 obreros iniciales se
     // reparten con la politica de esta partida y no se entrena ninguno.
     const bool enSplit = splitRunning();
@@ -193,6 +235,11 @@ void StarterBot::onFrame()
         else                   { sendIdleWorkersToMinerals(); }
     }
 
+    if (m_patchTestActive)
+    {
+        m_patchTest.onFrame((int)m_workerAssignment.size() == m_patchTest.totalWorkers());
+    }
+
     // Pregunta 2: solo medimos cuando estan exactamente los obreros que pide la
     // configuracion, ni uno mas ni uno menos.
     if (m_measurementMode && m_saturationActive)
@@ -212,14 +259,15 @@ void StarterBot::onFrame()
     // Build more supply if we are going to run out soon. Durante la Pregunta 2
     // no: los 9 obreros caben en el suministro inicial, y construir obliga a
     // sacar un obrero de su campo, lo que rompe la configuracion que se mide.
-    if (!(m_measurementMode && m_saturationActive) && !splitRunning()) { buildAdditionalSupply(); }
+    if (!(m_measurementMode && m_saturationActive) && !splitRunning() && !m_patchTestActive) { buildAdditionalSupply(); }
 
     // Medir los frames entre extracciones de cada campo de minerales
     updateMineralFields();
 
     // Cada 500 frames se reescribe el ranking completo de la base en un archivo,
     // para que quede aunque la partida termine de golpe.
-    if (m_measurementMode && !m_saturationActive && !splitRunning() && BWAPI::Broodwar->getFrameCount() % 500 == 0)
+    if (m_measurementMode && !m_saturationActive && !splitRunning() && !m_patchTestActive
+        && BWAPI::Broodwar->getFrameCount() % 500 == 0)
     {
         writeBaseRanking();
     }
@@ -227,8 +275,11 @@ void StarterBot::onFrame()
     // Draw unit health bars, which brood war unfortunately does not do
     Tools::DrawUnitHealthBars();
 
-    // Ranking de los 4 minerales mas eficientes por formacion (para la exposicion)
-    drawMineralRanking();
+    // Ranking de los 4 minerales mas eficientes por formacion (para la exposicion).
+    // En las partidas de saturacion no: tres campos tienen 1, 2 y 3 obreros a
+    // proposito, y el ranking mostraria esa diferencia como si fuera del campo.
+    if (m_patchTestActive) { m_patchTest.draw(); }
+    else                   { drawMineralRanking(); }
 
     // Panel de la Pregunta 2. Contamos los obreros ASIGNADOS, no todos los que
     // tenemos: los que sobran estan parados y no aportan a la tasa.
@@ -236,10 +287,10 @@ void StarterBot::onFrame()
     {
         m_saturation.draw((int)getMeasuredMinerals().size(), (int)m_workerAssignment.size());
     }
-    else if (m_measurementMode)
+    else if (m_measurementMode && !m_patchTestActive)
     {
         BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, 160),
-            "Pregunta 2 apagada en 4Retro (la partida es corta). Se enciende sola en otros mapas.");
+            "Pregunta 2: se mide en una de cada tres partidas. Esta es de split y ranking.");
     }
 
     drawSplit();
@@ -461,7 +512,8 @@ void StarterBot::assignWorkersToMinerals()
 
         for (const BWAPI::Unit mineral : baseMinerals)
         {
-            if (ocupacion[mineral->getID()] >= perMineral) { continue; }
+            const int tope = m_patchTestActive ? m_patchTest.capFor(mineral) : perMineral;
+            if (ocupacion[mineral->getID()] >= tope) { continue; }
 
             const int rango = efficiencyRank(mineral);
             const int clave = (rango >= 0) ? rango : std::numeric_limits<int>::max();
@@ -662,9 +714,10 @@ void StarterBot::trainAdditionalWorkers()
     int workersWanted = 20;
     if (m_measurementMode)
     {
-        workersWanted = m_saturationActive
-            ? (int)getMeasuredMinerals().size() * m_saturation.getMaxWorkersPerMineral()
-            : (int)getBaseMinerals().size();
+        workersWanted = m_patchTestActive ? m_patchTest.totalWorkers()
+                      : m_saturationActive
+                          ? (int)getMeasuredMinerals().size() * m_saturation.getMaxWorkersPerMineral()
+                          : (int)getBaseMinerals().size();
     }
 
     const int workersOwned = Tools::CountUnitsOfType(workerType, BWAPI::Broodwar->self()->getUnits());
@@ -710,6 +763,8 @@ void StarterBot::drawDebugInformation()
 void StarterBot::onEnd(bool isWinner)
 {
     std::cout << "We " << (isWinner ? "won!" : "lost!") << "\n";
+
+    if (m_patchTestActive) { m_patchTest.writeResults(isWinner ? "victoria" : "derrota"); }
 
     // Se anota en el archivo de resultados en que frame termino la partida, para
     // saber cuanto tiempo de juego hay disponible en cada mapa.
