@@ -1,4 +1,5 @@
 #include "StarterBot.h"
+#include "MeasuredData.h"
 #include "Tools.h"
 #include "MapTools.h"
 
@@ -11,28 +12,6 @@
 
 namespace
 {
-    // Campos mas eficientes de 4Retro1.2_1.16-Backport.scx para Terran, de mas a
-    // menos eficiente. Es el punto de partida mientras no exista el archivo de
-    // ranking de Terran en ese mapa; cuando existe, manda el archivo, que acumula
-    // las mediciones de todas las partidas.
-    //
-    // Origen: ranking de la Pregunta 1, formacion izquierda (nuestra base), un
-    // obrero por campo, partida del 18/11/2026. Entre parentesis, el promedio de
-    // frames entre bajadas y las muestras. Los dos primeros estan a 2 frames uno
-    // del otro, dentro del ruido; entre el 2 y el 3 hay 16 frames de diferencia.
-    // De esa captura solo se conocen los 4 primeros: el resto del orden sale de
-    // ranking_minerales.txt.
-    const BWAPI::TilePosition RETRO_TERRAN_IZQUIERDA[] =
-    {
-        BWAPI::TilePosition(3, 11),   // 153.56 frames, 9 muestras
-        BWAPI::TilePosition(4, 13),   // 155.54 frames, 13 muestras
-        BWAPI::TilePosition(6, 13),   // 171.75 frames, 12 muestras
-        BWAPI::TilePosition(3, 8),    // 173.25 frames, 12 muestras
-    };
-    const double RETRO_TERRAN_IZQUIERDA_PROM[] = { 153.56, 155.54, 171.75, 173.25 };
-    const int    RETRO_TERRAN_IZQUIERDA_MUESTRAS[] = { 9, 13, 12, 12 };
-    const int RETRO_TERRAN_IZQUIERDA_N = sizeof(RETRO_TERRAN_IZQUIERDA) / sizeof(RETRO_TERRAN_IZQUIERDA[0]);
-
     // Un campo entra al ranking con al menos estas muestras, igual que en pantalla.
     const int MIN_SAMPLES_RANKING = 3;
 }
@@ -71,6 +50,17 @@ void StarterBot::onStart()
                                 SATURATION_PATCHES);
     }
     else
+    {
+        // Modo de investigacion solo si existe modo_investigacion.txt en la
+        // carpeta del bot; si no, modo exposicion: un obrero por campo, sin turnos.
+        if (std::FILE* f = std::fopen("modo_investigacion.txt", "r"))
+        {
+            m_researchMode = true;
+            std::fclose(f);
+        }
+    }
+
+    if (m_researchMode)
     {
         // En 4Retro cada partida tiene un turno, contado en partidas_4retro.txt.
         // De cada tres partidas, dos hacen el split (bonus) y luego el ranking de
@@ -278,8 +268,9 @@ void StarterBot::onFrame()
     // Ranking de los 4 minerales mas eficientes por formacion (para la exposicion).
     // En las partidas de saturacion no: tres campos tienen 1, 2 y 3 obreros a
     // proposito, y el ranking mostraria esa diferencia como si fuera del campo.
-    if (m_patchTestActive) { m_patchTest.draw(); }
-    else                   { drawMineralRanking(); }
+    if (m_patchTestActive)                         { m_patchTest.draw(); }
+    else if (!m_researchMode && !m_saturationActive) { drawExpositionPanel(); }
+    else                                           { drawMineralRanking(); }
 
     // Panel de la Pregunta 2. Contamos los obreros ASIGNADOS, no todos los que
     // tenemos: los que sobran estan parados y no aportan a la tasa.
@@ -287,7 +278,7 @@ void StarterBot::onFrame()
     {
         m_saturation.draw((int)getMeasuredMinerals().size(), (int)m_workerAssignment.size());
     }
-    else if (m_measurementMode && !m_patchTestActive)
+    else if (m_measurementMode && m_researchMode && !m_patchTestActive)
     {
         BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, 160),
             "Pregunta 2: se mide en una de cada tres partidas. Esta es de split y ranking.");
@@ -392,15 +383,19 @@ void StarterBot::loadSavedRanking()
         }
         std::fclose(f);
     }
-    else if (raza == "Terran" && izquierda && mapa.find("4Retro") != std::string::npos)
+    else if (mapa.find("4Retro") != std::string::npos)
     {
-        for (int i = 0; i < RETRO_TERRAN_IZQUIERDA_N; i++)
+        // Sin archivo, se parte del ranking medido que esta en el codigo.
+        if (const MeasuredData::Ranking* medido = MeasuredData::find(raza, izquierda))
         {
-            RankEntry e;
-            e.tile = RETRO_TERRAN_IZQUIERDA[i];
-            e.average = RETRO_TERRAN_IZQUIERDA_PROM[i];
-            e.samples = RETRO_TERRAN_IZQUIERDA_MUESTRAS[i];
-            m_savedRanking.push_back(e);
+            for (const MeasuredData::Field& campo : medido->fields)
+            {
+                RankEntry e;
+                e.tile = BWAPI::TilePosition(campo.x, campo.y);
+                e.average = campo.average;
+                e.samples = campo.samples;
+                m_savedRanking.push_back(e);
+            }
         }
     }
 
@@ -777,6 +772,84 @@ void StarterBot::buildAdditionalSupply()
 }
 
 // Draw some relevent information to the screen to help us debug the bot
+// Panel del modo exposicion. Arriba, el top 4 medido de las tres razas en las
+// dos formaciones (lo que pide el enunciado), con la raza de esta partida
+// marcada. Debajo, el ranking en vivo de NUESTRA base, que se va formando
+// durante la partida con los contadores de la Pregunta 1. Al final, la tabla
+// de saturacion de la Pregunta 2.
+void StarterBot::drawExpositionPanel()
+{
+    const std::string raza = BWAPI::Broodwar->self()->getRace().getName();
+    int y = 20;
+
+    BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+        "TOP 4 MEDIDO (frames entre bajadas, 1 obrero por campo)");
+    y += 10;
+
+    for (int i = 0; i < MeasuredData::RANKING_COUNT; i++)
+    {
+        const MeasuredData::Ranking& r = MeasuredData::RANKINGS[i];
+        const MeasuredData::Field* f = r.fields;
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+            "%s%-7s %s: (%d,%d) %.1f  (%d,%d) %.1f  (%d,%d) %.1f  (%d,%d) %.1f",
+            raza == r.race ? "> " : "  ", r.race, r.left ? "izq" : "der",
+            f[0].x, f[0].y, f[0].average, f[1].x, f[1].y, f[1].average,
+            f[2].x, f[2].y, f[2].average, f[3].x, f[3].y, f[3].average);
+        y += 10;
+    }
+    y += 5;
+
+    // Ranking en vivo de nuestra formacion. La otra es la base del rival: sus
+    // contadores se dibujan igual sobre cada mineral, pero no se rankean porque
+    // no sabemos cuantos obreros trabajan cada campo.
+    const BWAPI::Unit depot = Tools::GetDepot();
+    std::vector<const MineralField*> nuestros;
+    for (const BWAPI::Unit mineral : getBaseMinerals())
+    {
+        const auto it = m_mineralFields.find(mineral->getID());
+        if (it != m_mineralFields.end() && it->second.getSamples() >= MIN_SAMPLES_RANKING)
+        {
+            nuestros.push_back(&it->second);
+        }
+    }
+    std::sort(nuestros.begin(), nuestros.end(), [](const MineralField* a, const MineralField* b)
+    {
+        return a->getAverage() < b->getAverage();
+    });
+
+    const bool izquierda = depot && depot->getPosition().x < BWAPI::Broodwar->mapWidth() * 16;
+    BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+        "EN VIVO - %s, nuestra base (formacion %s)", raza.c_str(), izquierda ? "izquierda" : "derecha");
+    y += 10;
+
+    if (nuestros.empty())
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y), "  (juntando muestras)");
+        y += 10;
+    }
+    for (int i = 0; i < (int)nuestros.size() && i < 4; i++)
+    {
+        const BWAPI::TilePosition tile(nuestros[i]->getPosition());
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+            "  %d) (%d,%d)  prom %.2f  (%d muestras)",
+            i + 1, tile.x, tile.y, nuestros[i]->getAverage(), nuestros[i]->getSamples());
+        BWAPI::Broodwar->drawCircleMap(nuestros[i]->getPosition(), 20, BWAPI::Colors::Green);
+        y += 10;
+    }
+    y += 5;
+
+    const double* t = MeasuredData::SATURATION_TOTAL;
+    BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+        "SATURACION MEDIDA (minerales cada 1000 frames en un campo)");
+    y += 10;
+    BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+        "  1 obrero: %.1f   2 obreros: %.1f (%.1f c/u)   3 obreros: %.1f (%.1f c/u)",
+        t[0], t[1], t[1] / 2.0, t[2], t[2] / 3.0);
+    y += 10;
+    BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+        "  el 2do obrero suma %.1f, el 3ro solo %.1f", t[1] - t[0], t[2] - t[1]);
+}
+
 void StarterBot::drawDebugInformation()
 {
     BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, 10), "Hello, World!\n");

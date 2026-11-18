@@ -73,6 +73,11 @@ class StarterBot
     bool m_patchTestActive = false;
     int  m_patchRotation = 0;
 
+    // Modo de investigacion: turna split, ranking y saturacion para juntar datos.
+    // Solo se activa si en la carpeta del bot existe modo_investigacion.txt; si
+    // no, el bot corre en modo exposicion, que muestra los datos ya medidos.
+    bool m_researchMode = false;
+
 public:
 
     StarterBot();
@@ -93,6 +98,7 @@ public:
     bool splitRunning() const;
     void finishSplit();
     void drawSplit() const;
+    void drawExpositionPanel();
 
     // functions that are triggered by various BWAPI events from main.cpp
 	void onStart();
