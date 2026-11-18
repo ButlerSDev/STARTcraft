@@ -56,6 +56,8 @@ public:
     void assignWorkersToMinerals();
     std::vector<BWAPI::Unit> getBaseMinerals() const;
     std::vector<BWAPI::Unit> getMeasuredMinerals() const;
+    int efficiencyRank(BWAPI::Unit mineral) const;
+    void writeBaseRanking() const;
 
     // functions that are triggered by various BWAPI events from main.cpp
 	void onStart();

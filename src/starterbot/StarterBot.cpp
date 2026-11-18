@@ -8,6 +8,28 @@
 #include <limits>
 #include <vector>
 
+namespace
+{
+    // Campos mas eficientes de 4Retro1.2_1.16-Backport.scx para Terran, de mas a
+    // menos eficiente. El mapa y la raza no cambian, asi que el ranking medido es
+    // un dato fijo y va como constante.
+    //
+    // Origen: ranking de la Pregunta 1, formacion izquierda (nuestra base), un
+    // obrero por campo, partida del 18/11/2026. Entre parentesis, el promedio de
+    // frames entre bajadas y las muestras. Los dos primeros estan a 2 frames uno
+    // del otro, dentro del ruido; entre el 2 y el 3 hay 16 frames de diferencia.
+    // De esa captura solo se conocen los 4 primeros: el resto del orden sale de
+    // ranking_minerales.txt.
+    const BWAPI::TilePosition RETRO_TERRAN_IZQUIERDA[] =
+    {
+        BWAPI::TilePosition(3, 11),   // 153.56 frames, 9 muestras
+        BWAPI::TilePosition(4, 13),   // 155.54 frames, 13 muestras
+        BWAPI::TilePosition(6, 13),   // 171.75 frames, 12 muestras
+        BWAPI::TilePosition(3, 8),    // 173.25 frames, 12 muestras
+    };
+    const int RETRO_TERRAN_IZQUIERDA_N = sizeof(RETRO_TERRAN_IZQUIERDA) / sizeof(RETRO_TERRAN_IZQUIERDA[0]);
+}
+
 StarterBot::StarterBot()
 {
     
@@ -63,6 +85,13 @@ void StarterBot::onFrame()
 
     // Medir los frames entre extracciones de cada campo de minerales
     updateMineralFields();
+
+    // Cada 500 frames se reescribe el ranking completo de la base en un archivo,
+    // para que quede aunque la partida termine de golpe.
+    if (m_measurementMode && !m_saturationActive && BWAPI::Broodwar->getFrameCount() % 500 == 0)
+    {
+        writeBaseRanking();
+    }
 
     // Draw unit health bars, which brood war unfortunately does not do
     Tools::DrawUnitHealthBars();
@@ -133,6 +162,57 @@ std::vector<BWAPI::Unit> StarterBot::getMeasuredMinerals() const
     return campos;
 }
 
+// Posicion del campo en el ranking de eficiencia (0 = el mejor), o -1 si el
+// campo no esta en el ranking o si la partida no es Terran en 4Retro. La
+// posicion se compara igual que en el ranking en pantalla: el tile del centro.
+int StarterBot::efficiencyRank(BWAPI::Unit mineral) const
+{
+    if (BWAPI::Broodwar->self()->getRace() != BWAPI::Races::Terran) { return -1; }
+    if (BWAPI::Broodwar->mapFileName().find("4Retro") == std::string::npos) { return -1; }
+
+    const BWAPI::TilePosition tile(mineral->getPosition());
+    for (int i = 0; i < RETRO_TERRAN_IZQUIERDA_N; i++)
+    {
+        if (RETRO_TERRAN_IZQUIERDA[i] == tile) { return i; }
+    }
+    return -1;
+}
+
+// Escribe el ranking completo de los campos de NUESTRA base en
+// ranking_minerales.txt, de mas a menos eficiente. En pantalla solo caben 4;
+// este archivo da el orden completo para completar las constantes.
+void StarterBot::writeBaseRanking() const
+{
+    std::vector<const MineralField*> campos;
+    for (const BWAPI::Unit mineral : getBaseMinerals())
+    {
+        const auto it = m_mineralFields.find(mineral->getID());
+        if (it != m_mineralFields.end() && it->second.getSamples() >= 3) { campos.push_back(&it->second); }
+    }
+    std::sort(campos.begin(), campos.end(), [](const MineralField* a, const MineralField* b)
+    {
+        return a->getAverage() < b->getAverage();
+    });
+
+    std::FILE* f = std::fopen("ranking_minerales.txt", "w");
+    if (!f) { return; }
+
+    const BWAPI::Unit depot = Tools::GetDepot();
+    std::fprintf(f, "Mapa %s, raza %s, frame %d, base %s\n",
+                 BWAPI::Broodwar->mapFileName().c_str(),
+                 BWAPI::Broodwar->self()->getRace().getName().c_str(),
+                 BWAPI::Broodwar->getFrameCount(),
+                 !depot ? "?" : (depot->getPosition().x < BWAPI::Broodwar->mapWidth() * 16 ? "izquierda" : "derecha"));
+
+    for (size_t i = 0; i < campos.size(); i++)
+    {
+        const BWAPI::TilePosition tile(campos[i]->getPosition());
+        std::fprintf(f, "%d) tile (%d,%d)  prom %.2f  (%d muestras)\n",
+                     (int)i + 1, tile.x, tile.y, campos[i]->getAverage(), campos[i]->getSamples());
+    }
+    std::fclose(f);
+}
+
 // Reparte los obreros sobre los campos de la base, con un tope de N obreros por
 // campo. N lo fija el experimento de saturacion (/sat N); con N=1 cada campo se
 // mide aislado, que es lo que necesita la Pregunta 1.
@@ -165,17 +245,23 @@ void StarterBot::assignWorkersToMinerals()
         if (!worker->getType().isWorker()) { continue; }
         if (m_workerAssignment.count(worker->getID())) { continue; }
 
-        // Entre los campos con cupo libre, el MAS CERCANO a este obrero.
+        // Entre los campos con cupo libre: primero los del ranking de eficiencia,
+        // en su orden; si ninguno tiene cupo, el MAS CERCANO a este obrero.
         BWAPI::Unit mejorMineral = nullptr;
+        int mejorRango = std::numeric_limits<int>::max();
         int mejorDistancia = std::numeric_limits<int>::max();
 
         for (const BWAPI::Unit mineral : baseMinerals)
         {
             if (ocupacion[mineral->getID()] >= perMineral) { continue; }
 
+            const int rango = efficiencyRank(mineral);
+            const int clave = (rango >= 0) ? rango : std::numeric_limits<int>::max();
             const int distancia = worker->getDistance(mineral);
-            if (distancia < mejorDistancia)
+
+            if (clave < mejorRango || (clave == mejorRango && distancia < mejorDistancia))
             {
+                mejorRango = clave;
                 mejorDistancia = distancia;
                 mejorMineral = mineral;
             }
