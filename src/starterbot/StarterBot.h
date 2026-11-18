@@ -55,6 +55,16 @@ class StarterBot
     std::vector<RankEntry> m_savedRanking;
     std::string m_rankingFile;          // vacio hasta que se sabe de que lado estamos
 
+    // Bonus: el split. Durante los primeros SPLIT_FRAMES de cada partida en 4Retro
+    // se reparten solo los 4 obreros iniciales, sin entrenar mas, con una de tres
+    // politicas, y se anota cuanto recolectaron. La politica rota sola de una
+    // partida a la siguiente.
+    enum SplitPolicy { SPLIT_CHURCHILL = 0, SPLIT_DISTANCIA = 1, SPLIT_EFICIENCIA = 2, SPLIT_NONE = -1 };
+    static const int SPLIT_FRAMES = 1000;
+    int  m_splitPolicy = SPLIT_NONE;
+    bool m_splitDone = false;
+    bool m_ignoreRanking = false;       // true mientras el split reparte por distancia
+
 public:
 
     StarterBot();
@@ -72,6 +82,9 @@ public:
     int efficiencyRank(BWAPI::Unit mineral) const;
     void loadSavedRanking();
     void writeBaseRanking() const;
+    bool splitRunning() const;
+    void finishSplit();
+    void drawSplit() const;
 
     // functions that are triggered by various BWAPI events from main.cpp
 	void onStart();

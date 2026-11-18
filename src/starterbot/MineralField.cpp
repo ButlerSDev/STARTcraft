@@ -38,6 +38,14 @@ void MineralField::onFrame()
     m_lastResources = current;
 }
 
+void MineralField::resetHistory()
+{
+    m_history.clear();
+    m_timingStarted = false;
+    m_framesSinceDrop = 0;
+    m_lastCount = 0;
+}
+
 double MineralField::getAverage() const
 {
     if (m_history.empty()) { return 0.0; }

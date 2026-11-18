@@ -28,6 +28,10 @@ public:
     // Dibuja el texto sobre el mineral (drawTextMap).
     void draw() const;
 
+    // Olvida los conteos registrados y vuelve a esperar una primera bajada.
+    // Se usa al terminar el split, cuyos repartos no son de un obrero por campo.
+    void resetHistory();
+
     // Para las estadisticas de la exposicion (ranking de eficiencia).
     double          getAverage() const;     // promedio de los ultimos <=20 conteos
     int             getLastCount() const { return m_lastCount; }
