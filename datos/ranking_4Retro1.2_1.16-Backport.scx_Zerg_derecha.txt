@@ -1,0 +1,11 @@
+# Mapa 4Retro1.2_1.16-Backport.scx, raza Zerg, actualizado en el frame 10500
+# tile_x tile_y promedio_frames muestras  (de mas a menos eficiente)
+125 12 148.95 20
+125 9 153.15 20
+125 7 164.70 20
+126 6 169.75 20
+125 11 171.65 20
+126 8 173.60 20
+125 5 173.70 20
+124 13 182.15 20
+126 10 182.15 20

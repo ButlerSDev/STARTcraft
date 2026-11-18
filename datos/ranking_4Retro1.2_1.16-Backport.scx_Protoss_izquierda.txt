@@ -1,0 +1,11 @@
+# Mapa 4Retro1.2_1.16-Backport.scx, raza Protoss, actualizado en el frame 9000
+# tile_x tile_y promedio_frames muestras  (de mas a menos eficiente)
+4 13 153.40 20
+3 8 154.40 20
+3 6 154.85 20
+3 9 155.35 20
+6 13 163.35 20
+3 11 170.90 20
+3 12 170.95 20
+2 7 173.15 20
+2 10 175.00 20

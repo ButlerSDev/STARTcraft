@@ -1,0 +1,13 @@
+Datos medidos en 4Retro1.2_1.16-Backport.scx con el modo de investigacion del bot
+(18/11/2026). Copia de los archivos que el bot escribe en bin_linux/.
+
+partidas_4retro.txt       turno de cada partida (split+ranking o saturacion) y raza
+ranking_<mapa>_<raza>_<lado>.txt
+                          frames promedio entre bajadas por campo, un obrero por campo,
+                          acumulado entre partidas (tile_x tile_y promedio muestras)
+saturacion_4retro.txt     Pregunta 2: ingreso por campo con 1, 2 y 3 obreros a la vez.
+                          Las lineas con # son mediciones descartadas, con el motivo.
+split_resultados.txt      bonus: minerales recolectados en los primeros 1000 frames con
+                          los 4 obreros iniciales, segun la politica de reparto
+
+Las partidas 0 a 15 se jugaron en Game Type "Free For All" y desde la 16 en "Melee".

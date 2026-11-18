@@ -1,0 +1,11 @@
+# Mapa 4Retro1.2_1.16-Backport.scx, raza Terran, actualizado en el frame 15000
+# tile_x tile_y promedio_frames muestras  (de mas a menos eficiente)
+125 11 149.10 60
+126 6 162.90 60
+125 9 171.73 60
+125 7 172.25 60
+126 8 172.82 60
+124 13 173.13 60
+125 12 173.35 60
+126 10 174.48 60
+125 5 198.53 60

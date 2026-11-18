@@ -1,0 +1,13 @@
+politica=churchill  mapa=4Retro1.2_1.16-Backport.scx  raza=Protoss  lado=derecha  frames=1000  recolectado=226  campos_en_ranking=0
+politica=distancia  mapa=4Retro1.2_1.16-Backport.scx  raza=Protoss  lado=derecha  frames=1000  recolectado=234  campos_en_ranking=9
+politica=eficiencia  mapa=4Retro1.2_1.16-Backport.scx  raza=Terran  lado=derecha  frames=1000  recolectado=218  campos_en_ranking=0
+politica=churchill  mapa=4Retro1.2_1.16-Backport.scx  raza=Terran  lado=derecha  frames=1000  recolectado=218  campos_en_ranking=9
+politica=distancia  mapa=4Retro1.2_1.16-Backport.scx  raza=Zerg  lado=izquierda  frames=1000  recolectado=226  campos_en_ranking=0
+politica=eficiencia  mapa=4Retro1.2_1.16-Backport.scx  raza=Zerg  lado=izquierda  frames=1000  recolectado=218  campos_en_ranking=9
+politica=churchill  mapa=4Retro1.2_1.16-Backport.scx  raza=Terran  lado=derecha  frames=1000  recolectado=218  campos_en_ranking=9
+politica=distancia  mapa=4Retro1.2_1.16-Backport.scx  raza=Terran  lado=izquierda  frames=1000  recolectado=218  campos_en_ranking=4
+politica=eficiencia  mapa=4Retro1.2_1.16-Backport.scx  raza=Protoss  lado=derecha  frames=1000  recolectado=242  campos_en_ranking=9
+politica=churchill  mapa=4Retro1.2_1.16-Backport.scx  raza=Protoss  lado=izquierda  frames=1000  recolectado=226  campos_en_ranking=0
+politica=distancia  mapa=4Retro1.2_1.16-Backport.scx  raza=Zerg  lado=izquierda  frames=1000  recolectado=218  campos_en_ranking=9
+politica=eficiencia  mapa=4Retro1.2_1.16-Backport.scx  raza=Zerg  lado=izquierda  frames=1000  recolectado=218  campos_en_ranking=9
+politica=churchill  mapa=4Retro1.2_1.16-Backport.scx  raza=Zerg  lado=derecha  frames=1000  recolectado=226  campos_en_ranking=0
