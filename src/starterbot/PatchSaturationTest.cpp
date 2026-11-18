@@ -1,6 +1,7 @@
 #include "PatchSaturationTest.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 void PatchSaturationTest::setup(const std::vector<BWAPI::Unit>& patches, int rotation)
@@ -18,6 +19,24 @@ void PatchSaturationTest::setup(const std::vector<BWAPI::Unit>& patches, int rot
     }
     m_readySince = -1;
     m_windowStart = -1;
+    m_windowEnd = -1;
+    m_finished = false;
+}
+
+int PatchSaturationTest::countRecordedGames()
+{
+    // Cada partida con datos tiene exactamente una linea con obreros=1.
+    int partidas = 0;
+    if (std::FILE* f = std::fopen("saturacion_4retro.txt", "r"))
+    {
+        char linea[512];
+        while (std::fgets(linea, sizeof(linea), f))
+        {
+            if (std::strstr(linea, "obreros=1 ")) { partidas++; }
+        }
+        std::fclose(f);
+    }
+    return partidas;
 }
 
 int PatchSaturationTest::capFor(BWAPI::Unit mineral) const
@@ -39,13 +58,28 @@ int PatchSaturationTest::totalWorkers() const
 int PatchSaturationTest::elapsed() const
 {
     if (m_windowStart < 0) { return 0; }
-    return BWAPI::Broodwar->getFrameCount() - m_windowStart;
+    const int fin = (m_windowEnd >= 0) ? m_windowEnd : BWAPI::Broodwar->getFrameCount();
+    return fin - m_windowStart;
 }
 
 int PatchSaturationTest::gathered(const Patch& p) const
 {
-    if (m_windowStart < 0 || !p.unit || !p.unit->exists()) { return 0; }
+    if (m_windowStart < 0) { return 0; }
+    if (m_windowEnd >= 0) { return p.startResources - p.endResources; }
+    if (!p.unit || !p.unit->exists()) { return 0; }
     return p.startResources - p.unit->getResources();
+}
+
+void PatchSaturationTest::finish(const char* motivo)
+{
+    m_windowEnd = BWAPI::Broodwar->getFrameCount();
+    for (Patch& p : m_patches)
+    {
+        p.endResources = (p.unit && p.unit->exists()) ? p.unit->getResources() : p.startResources;
+    }
+    m_finished = true;
+    writeResults(motivo);
+    BWAPI::Broodwar->printf("Saturacion en paralelo: resultado anotado (%s)", motivo);
 }
 
 double PatchSaturationTest::ratePer1000(const Patch& p) const
@@ -57,14 +91,19 @@ double PatchSaturationTest::ratePer1000(const Patch& p) const
 
 void PatchSaturationTest::onFrame(bool configReady)
 {
-    if (m_patches.empty()) { return; }
+    if (m_patches.empty() || m_finished) { return; }
 
     const int now = BWAPI::Broodwar->getFrameCount();
 
     if (!configReady)
     {
-        // Falta un obrero o murio alguno: lo medido ya no corresponde a la
-        // configuracion, asi que la ventana se descarta.
+        // Falta un obrero o murio alguno. Si ya habia una ventana larga, se anota
+        // lo medido hasta aqui; si era corta, se descarta y se vuelve a esperar.
+        if (m_windowStart >= 0 && elapsed() >= MIN_PARTIAL_FRAMES)
+        {
+            finish("ventana parcial, se rompio la configuracion");
+            return;
+        }
         m_readySince = -1;
         m_windowStart = -1;
         return;
@@ -72,11 +111,17 @@ void PatchSaturationTest::onFrame(bool configReady)
 
     if (m_readySince < 0) { m_readySince = now; }
 
-    if (m_windowStart < 0 && now - m_readySince >= WARMUP_FRAMES)
+    if (m_windowStart < 0)
     {
-        m_windowStart = now;
-        for (Patch& p : m_patches) { p.startResources = p.unit->getResources(); }
+        if (now - m_readySince >= WARMUP_FRAMES)
+        {
+            m_windowStart = now;
+            for (Patch& p : m_patches) { p.startResources = p.unit->getResources(); }
+        }
+        return;
     }
+
+    if (elapsed() >= MEASURE_FRAMES) { finish("ventana completa"); }
 }
 
 void PatchSaturationTest::draw() const
@@ -102,8 +147,16 @@ void PatchSaturationTest::draw() const
         return;
     }
 
-    BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
-        "  midiendo desde hace %d frames", elapsed());
+    if (m_finished)
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+            "  TERMINADO: %d frames medidos, anotado en saturacion_4retro.txt", elapsed());
+    }
+    else
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
+            "  midiendo %d/%d frames", elapsed(), MEASURE_FRAMES);
+    }
     y += 10;
     BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, y),
         "  obreros  tile      recolectado  min/1000f  por obrero");
@@ -133,10 +186,12 @@ void PatchSaturationTest::writeResults(const char* motivo) const
     if (!f) { return; }
 
     const std::string raza = BWAPI::Broodwar->self()->getRace().getName();
+    const BWAPI::Position base = BWAPI::Position(BWAPI::Broodwar->self()->getStartLocation());
+    const char* lado = base.x < BWAPI::Broodwar->mapWidth() * 16 ? "izquierda" : "derecha";
     if (m_windowStart < 0)
     {
-        std::fprintf(f, "rotacion=%d  raza=%s  sin ventana completa (%s, frame %d)\n",
-                     m_rotation, raza.c_str(), motivo, BWAPI::Broodwar->getFrameCount());
+        std::fprintf(f, "rotacion=%d  raza=%s  lado=%s  sin datos (%s, frame %d)\n",
+                     m_rotation, raza.c_str(), lado, motivo, BWAPI::Broodwar->getFrameCount());
         std::fclose(f);
         return;
     }
@@ -145,8 +200,8 @@ void PatchSaturationTest::writeResults(const char* motivo) const
     {
         const BWAPI::TilePosition tile(p.unit->getPosition());
         const double rate = ratePer1000(p);
-        std::fprintf(f, "rotacion=%d  raza=%s  tile=(%d,%d)  obreros=%d  frames=%d  recolectado=%d  min_1000f=%.2f  por_obrero=%.2f  (%s)\n",
-                     m_rotation, raza.c_str(), tile.x, tile.y, p.workers, elapsed(), gathered(p),
+        std::fprintf(f, "rotacion=%d  raza=%s  lado=%s  tile=(%d,%d)  obreros=%d  frames=%d  recolectado=%d  min_1000f=%.2f  por_obrero=%.2f  (%s)\n",
+                     m_rotation, raza.c_str(), lado, tile.x, tile.y, p.workers, elapsed(), gathered(p),
                      rate, rate / p.workers, motivo);
     }
     std::fclose(f);

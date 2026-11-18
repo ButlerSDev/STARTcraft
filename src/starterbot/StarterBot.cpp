@@ -91,7 +91,7 @@ void StarterBot::onStart()
         if (partida % 3 == 2)
         {
             m_patchTestActive = true;
-            m_patchRotation = vuelta % 3;
+            m_patchRotation = PatchSaturationTest::countRecordedGames() % 3;
         }
         else
         {
@@ -764,7 +764,10 @@ void StarterBot::onEnd(bool isWinner)
 {
     std::cout << "We " << (isWinner ? "won!" : "lost!") << "\n";
 
-    if (m_patchTestActive) { m_patchTest.writeResults(isWinner ? "victoria" : "derrota"); }
+    if (m_patchTestActive && !m_patchTest.isFinished())
+    {
+        m_patchTest.writeResults(isWinner ? "victoria" : "derrota");
+    }
 
     // Se anota en el archivo de resultados en que frame termino la partida, para
     // saber cuanto tiempo de juego hay disponible en cada mapa.

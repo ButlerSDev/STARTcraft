@@ -20,6 +20,15 @@ public:
     // su campo antes de empezar a contar.
     static const int WARMUP_FRAMES = 300;
 
+    // Duracion de la ventana. Al cumplirse se anota el resultado y la medicion
+    // termina, sin esperar al fin de la partida: si se esperara, el ataque final
+    // del rival mata obreros, rompe la configuracion y se perderia todo.
+    static const int MEASURE_FRAMES = 3000;
+
+    // Si la configuracion se rompe con al menos esta ventana ya medida, se anota
+    // como resultado parcial en vez de descartarla.
+    static const int MIN_PARTIAL_FRAMES = 1000;
+
     // Prepara la medicion sobre tres campos. rotation (0, 1 o 2) decide que campo
     // recibe 1, 2 y 3 obreros.
     void setup(const std::vector<BWAPI::Unit>& patches, int rotation);
@@ -42,18 +51,30 @@ public:
     // Anota en saturacion_4retro.txt una linea por campo con lo medido.
     void writeResults(const char* motivo) const;
 
+    bool isFinished() const { return m_finished; }
+
+    // Cuantas partidas de saturacion con datos hay ya anotadas en el archivo.
+    // Decide la rotacion de la siguiente, para que las tres salgan aunque alguna
+    // partida se pierda sin datos.
+    static int countRecordedGames();
+
 private:
     struct Patch
     {
         BWAPI::Unit unit = nullptr;
         int workers = 0;
         int startResources = 0;   // cantidad al abrir la ventana
+        int endResources = 0;     // cantidad al cerrar la ventana
     };
 
     std::vector<Patch> m_patches;
     int m_rotation = 0;
     int m_readySince = -1;        // frame desde el que la configuracion esta completa
     int m_windowStart = -1;       // frame en que se abrio la ventana, -1 si no hay
+    int m_windowEnd = -1;         // frame en que se cerro, -1 mientras sigue abierta
+    bool m_finished = false;
+
+    void finish(const char* motivo);
 
     int    gathered(const Patch& p) const;
     double ratePer1000(const Patch& p) const;
