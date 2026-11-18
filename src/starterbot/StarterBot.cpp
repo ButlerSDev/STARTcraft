@@ -421,6 +421,12 @@ void StarterBot::writeBaseRanking() const
 {
     if (m_rankingFile.empty()) { return; }
 
+    // Sin centro de mando (lo destruyo el rival al final de la partida) no se
+    // puede saber cuales son los campos de la base. Si se escribiera igual, el
+    // archivo quedaria solo con lo de partidas anteriores y se perderia todo lo
+    // medido en esta: se conserva la ultima escritura buena.
+    if (!Tools::GetDepot()) { return; }
+
     std::vector<RankEntry> combinado = m_savedRanking;
 
     for (const BWAPI::Unit mineral : getBaseMinerals())
