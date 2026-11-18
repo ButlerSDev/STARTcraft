@@ -553,9 +553,28 @@ void StarterBot::assignWorkersToMinerals()
         const BWAPI::Unit worker  = BWAPI::Broodwar->getUnit(pair.first);
         const BWAPI::Unit mineral = BWAPI::Broodwar->getUnit(pair.second);
 
-        if (worker && worker->exists() && worker->isIdle() && mineral && mineral->exists())
+        if (!worker || !worker->exists() || !mineral || !mineral->exists()) { continue; }
+
+        if (worker->isIdle())
         {
             worker->rightClick(mineral);
+            continue;
+        }
+
+        // Si su campo esta ocupado, StarCraft manda al obrero por su cuenta a
+        // otro campo cercano. Para el juego es una ventaja; para la medicion no,
+        // porque el obrero deja de trabajar el campo al que esta asignado y
+        // empieza a sumar en otro. Mientras va hacia el campo o espera en el (no
+        // cuando vuelve con carga), si su objetivo no es su campo, se le
+        // devuelve. La pausa de 8 frames evita repetir la orden en cada frame.
+        if (worker->isGatheringMinerals() && !worker->isCarryingMinerals())
+        {
+            const BWAPI::Unit objetivo = worker->getOrderTarget();
+            const bool otroCampo = objetivo && objetivo->getType().isMineralField() && objetivo != mineral;
+            if (otroCampo && BWAPI::Broodwar->getFrameCount() - worker->getLastCommandFrame() > 8)
+            {
+                worker->gather(mineral);
+            }
         }
     }
 }
