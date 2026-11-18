@@ -69,6 +69,15 @@ public:
 
     int  getWorkersPerMineral() const { return m_workersPerMineral; }
 
+    // Obreros por campo de la configuracion mas grande que falta medir. Sirve
+    // para entrenar por adelantado y que ninguna fase espere por obreros.
+    int  getMaxWorkersPerMineral() const;
+
+    // Agrega una linea al archivo de resultados (saturacion_resultados.txt, en la
+    // carpeta desde la que se lanza el bot). Asi los numeros no dependen de
+    // alcanzar a tomar una captura antes de que termine la partida.
+    static void appendLog(const char* format, ...);
+
     // Fija una configuracion a mano y abandona el recorrido automatico.
     void setWorkersPerMineral(int n);
 

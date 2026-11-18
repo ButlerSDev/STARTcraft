@@ -44,17 +44,22 @@ void StarterBot::onFrame()
 
     // Pregunta 2: solo medimos cuando estan exactamente los obreros que pide la
     // configuracion, ni uno mas ni uno menos.
-    const int campos = (int)getBaseMinerals().size();
-    const int asignados = (int)m_workerAssignment.size();
-    const int objetivo = campos * m_saturation.getWorkersPerMineral();
-    const bool configCompleta = (objetivo > 0) && (asignados == objetivo);
-    m_saturation.onFrame(configCompleta, campos, asignados);
+    if (m_measurementMode && m_saturationActive)
+    {
+        const int campos = (int)getMeasuredMinerals().size();
+        const int asignados = (int)m_workerAssignment.size();
+        const int objetivo = campos * m_saturation.getWorkersPerMineral();
+        const bool configCompleta = (objetivo > 0) && (asignados == objetivo);
+        m_saturation.onFrame(configCompleta, campos, asignados);
+    }
 
     // Train more workers so we can gather more income
     trainAdditionalWorkers();
 
-    // Build more supply if we are going to run out soon
-    buildAdditionalSupply();
+    // Build more supply if we are going to run out soon. Durante la Pregunta 2
+    // no: los 9 obreros caben en el suministro inicial, y construir obliga a
+    // sacar un obrero de su campo, lo que rompe la configuracion que se mide.
+    if (!(m_measurementMode && m_saturationActive)) { buildAdditionalSupply(); }
 
     // Medir los frames entre extracciones de cada campo de minerales
     updateMineralFields();
@@ -67,9 +72,14 @@ void StarterBot::onFrame()
 
     // Panel de la Pregunta 2. Contamos los obreros ASIGNADOS, no todos los que
     // tenemos: los que sobran estan parados y no aportan a la tasa.
-    if (m_measurementMode)
+    if (m_measurementMode && m_saturationActive)
     {
-        m_saturation.draw((int)getBaseMinerals().size(), (int)m_workerAssignment.size());
+        m_saturation.draw((int)getMeasuredMinerals().size(), (int)m_workerAssignment.size());
+    }
+    else if (m_measurementMode)
+    {
+        BWAPI::Broodwar->drawTextScreen(BWAPI::Position(10, 160),
+            "Pregunta 2 apagada. Escribe /sat auto para medir saturacion.");
     }
 
     // Draw some relevent information to the screen to help us debug the bot
@@ -99,13 +109,37 @@ std::vector<BWAPI::Unit> StarterBot::getBaseMinerals() const
     return resultado;
 }
 
+// Campos sobre los que se reparten los obreros. En la Pregunta 1 son todos los
+// de la base. En la Pregunta 2 son los SATURATION_PATCHES mas cercanos al centro
+// de mando: siempre los mismos durante toda la partida, de modo que las tres
+// configuraciones se comparan sobre los mismos campos y la distancia no cambia.
+std::vector<BWAPI::Unit> StarterBot::getMeasuredMinerals() const
+{
+    std::vector<BWAPI::Unit> campos = getBaseMinerals();
+    if (!m_saturationActive) { return campos; }
+
+    const BWAPI::Unit depot = Tools::GetDepot();
+    if (!depot) { return campos; }
+
+    std::sort(campos.begin(), campos.end(), [depot](BWAPI::Unit a, BWAPI::Unit b)
+    {
+        const int da = depot->getDistance(a);
+        const int db = depot->getDistance(b);
+        if (da != db) { return da < db; }
+        return a->getID() < b->getID();   // desempate fijo, para no alternar campos
+    });
+
+    if ((int)campos.size() > SATURATION_PATCHES) { campos.resize(SATURATION_PATCHES); }
+    return campos;
+}
+
 // Reparte los obreros sobre los campos de la base, con un tope de N obreros por
 // campo. N lo fija el experimento de saturacion (/sat N); con N=1 cada campo se
 // mide aislado, que es lo que necesita la Pregunta 1.
 void StarterBot::assignWorkersToMinerals()
 {
-    const int perMineral = m_saturation.getWorkersPerMineral();
-    const std::vector<BWAPI::Unit> baseMinerals = getBaseMinerals();
+    const int perMineral = m_saturationActive ? m_saturation.getWorkersPerMineral() : 1;
+    const std::vector<BWAPI::Unit> baseMinerals = getMeasuredMinerals();
     if (baseMinerals.empty()) { return; }
 
     // 1) Limpiar asignaciones cuyo obrero o mineral ya no existe
@@ -157,7 +191,17 @@ void StarterBot::assignWorkersToMinerals()
         }
     }
 
-    // 4) Si un obrero asignado quedo quieto, lo volvemos a mandar a SU mineral
+    // 4) Un obrero sin asignacion que siga minando se detiene: pasa al cambiar de
+    //    la Pregunta 1 a la 2, cuando los obreros de los demas campos se quedan
+    //    sin campo. Si siguiera minando sumaria a la tasa sin estar contado.
+    for (const BWAPI::Unit worker : BWAPI::Broodwar->self()->getUnits())
+    {
+        if (!worker->getType().isWorker()) { continue; }
+        if (m_workerAssignment.count(worker->getID())) { continue; }
+        if (worker->isGatheringMinerals()) { worker->stop(); }
+    }
+
+    // 5) Si un obrero asignado quedo quieto, lo volvemos a mandar a SU mineral
     for (const auto& pair : m_workerAssignment)
     {
         const BWAPI::Unit worker  = BWAPI::Broodwar->getUnit(pair.first);
@@ -317,10 +361,16 @@ void StarterBot::trainAdditionalWorkers()
     // En modo medicion el numero de obreros es parte del experimento, no una
     // decision libre: queremos exactamente (campos de la base) x (obreros por
     // campo). Un obrero de mas mina por su cuenta y falsea la tasa.
+    //
+    // En la Pregunta 2 se entrenan desde el inicio los obreros de la configuracion
+    // mas grande. Los que sobran esperan quietos y no suman, y asi la fase 3 no
+    // tiene que esperar a que se entrenen: se entrenan mientras corre la fase 1.
     int workersWanted = 20;
     if (m_measurementMode)
     {
-        workersWanted = (int)getBaseMinerals().size() * m_saturation.getWorkersPerMineral();
+        workersWanted = m_saturationActive
+            ? (int)getMeasuredMinerals().size() * m_saturation.getMaxWorkersPerMineral()
+            : (int)getBaseMinerals().size();
     }
 
     const int workersOwned = Tools::CountUnitsOfType(workerType, BWAPI::Broodwar->self()->getUnits());
@@ -366,6 +416,14 @@ void StarterBot::drawDebugInformation()
 void StarterBot::onEnd(bool isWinner)
 {
     std::cout << "We " << (isWinner ? "won!" : "lost!") << "\n";
+
+    // Se anota en el archivo de resultados en que frame termino la partida, para
+    // saber cuanto tiempo de juego hay disponible en cada mapa.
+    if (m_saturationActive)
+    {
+        SaturationMeter::appendLog("Fin de partida en el frame %d (%s)",
+                                   BWAPI::Broodwar->getFrameCount(), isWinner ? "victoria" : "derrota");
+    }
 }
 
 // Called whenever a unit is destroyed, with a pointer to the unit
@@ -407,9 +465,11 @@ void StarterBot::onSendText(std::string text)
         // Reinicia el recorrido automatico 1 -> 2 -> 3 desde cero.
         // Va ANTES que la rama de /sat N, porque "/sat auto" tambien empieza
         // con "/sat " y si no se comprueba primero nunca se alcanzaria.
+        m_saturationActive = true;
         m_saturation.restartAuto();
         m_workerAssignment.clear();
-        BWAPI::Broodwar->printf("Saturacion: recorrido automatico reiniciado");
+        BWAPI::Broodwar->printf("Saturacion: recorrido automatico 1, 2, 3 sobre los %d campos mas cercanos",
+                                SATURATION_PATCHES);
     }
     else if (text.rfind("/sat ", 0) == 0)
     {
@@ -417,6 +477,7 @@ void StarterBot::onSendText(std::string text)
         const int n = std::atoi(text.substr(5).c_str());
         if (n >= 1 && n <= 10)
         {
+            m_saturationActive = true;
             m_saturation.setWorkersPerMineral(n);
             m_workerAssignment.clear();   // el reparto se rehace con el nuevo tope
             BWAPI::Broodwar->printf("Saturacion: %d obrero(s) por campo. Medicion reiniciada.", n);

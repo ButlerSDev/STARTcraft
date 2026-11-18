@@ -1,5 +1,9 @@
 #include "SaturationMeter.h"
 
+#include <algorithm>
+#include <cstdarg>
+#include <cstdio>
+
 SaturationMeter::SaturationMeter()
 {
     // Solo se arma el plan. No se toca BWAPI::Broodwar aqui: el objeto se
@@ -9,6 +13,27 @@ SaturationMeter::SaturationMeter()
     m_plan.push_back(2);
     m_plan.push_back(3);
     m_workersPerMineral = m_plan[0];
+}
+
+int SaturationMeter::getMaxWorkersPerMineral() const
+{
+    if (!m_auto) { return m_workersPerMineral; }
+    return *std::max_element(m_plan.begin(), m_plan.end());
+}
+
+void SaturationMeter::appendLog(const char* format, ...)
+{
+    std::FILE* f = std::fopen("saturacion_resultados.txt", "a");
+    if (!f) { return; }
+
+    char linea[256];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(linea, sizeof(linea), format, args);
+    va_end(args);
+
+    std::fprintf(f, "%s\n", linea);
+    std::fclose(f);
 }
 
 void SaturationMeter::beginPhase(size_t phase)
@@ -23,6 +48,14 @@ void SaturationMeter::beginPhase(size_t phase)
 
 void SaturationMeter::restartAuto()
 {
+    // Encabezado de la corrida en el archivo: mapa y raza, para que cada bloque
+    // de resultados diga de donde salio.
+    appendLog("--- Saturacion en %s, raza %s, desde el frame %d ---",
+              BWAPI::Broodwar->mapFileName().c_str(),
+              BWAPI::Broodwar->self()->getRace().getName().c_str(),
+              BWAPI::Broodwar->getFrameCount());
+
+    m_started = true;
     m_auto = true;
     m_finished = false;
     m_results.clear();
@@ -31,6 +64,12 @@ void SaturationMeter::restartAuto()
 
 void SaturationMeter::setWorkersPerMineral(int n)
 {
+    appendLog("--- Saturacion manual en %s, raza %s, %d obrero(s) por campo, desde el frame %d ---",
+              BWAPI::Broodwar->mapFileName().c_str(),
+              BWAPI::Broodwar->self()->getRace().getName().c_str(),
+              n, BWAPI::Broodwar->getFrameCount());
+
+    m_started = true;
     m_auto = false;
     m_finished = false;
     m_workersPerMineral = n;
@@ -76,11 +115,16 @@ void SaturationMeter::recordAndAdvance(int patches, int workers, bool ok)
 
         BWAPI::Broodwar->printf("Saturacion %d obrero(s)/campo: %.2f min/1000f, %.3f por obrero",
                                 r.workersPerMineral, r.rate, r.perWorker);
+        appendLog("N=%d  campos=%d  obreros=%d  frames=%d  recolectado=%d  min/1000f=%.2f  por_obrero=%.3f  (fin en frame %d)",
+                  r.workersPerMineral, r.patches, r.workers, r.frames, r.gathered, r.rate, r.perWorker,
+                  BWAPI::Broodwar->getFrameCount());
     }
     else
     {
         BWAPI::Broodwar->printf("Saturacion %d obrero(s)/campo: abandonada, no se reunieron los obreros",
                                 r.workersPerMineral);
+        appendLog("N=%d  abandonada: no se reunieron los obreros (frame %d)",
+                  r.workersPerMineral, BWAPI::Broodwar->getFrameCount());
     }
 
     m_results.push_back(r);

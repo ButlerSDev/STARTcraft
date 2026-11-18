@@ -16,6 +16,13 @@ class StarterBot
     // yacimientos mas extendidos.
     static const int BASE_RADIUS = 400;
 
+    // Pregunta 2: la saturacion es un fenomeno de cada campo, no de la base
+    // entera, asi que se mide sobre los campos mas cercanos al centro de mando
+    // en vez de sobre todos. Con 3 campos la configuracion mas cara (3 por campo)
+    // pide 9 obreros: cabe en el suministro inicial de las tres razas y el
+    // experimento completo dura minutos en vez de un cuarto de hora.
+    static const int SATURATION_PATCHES = 3;
+
     MapTools m_mapTools;
 
     // Un MineralField por cada mineral del mapa, indexado por el ID de la unidad
@@ -29,8 +36,11 @@ class StarterBot
     // Asignacion fija obrero -> mineral mientras dura el modo medicion
     std::unordered_map<int, int> m_workerAssignment;
 
-    // Pregunta 2: medicion de saturacion (/sat 1, /sat 2, /sat 3)
+    // Pregunta 2: medicion de saturacion. Apagada al empezar la partida, para
+    // que la Pregunta 1 mida con un obrero por campo; se enciende con /sat auto
+    // o /sat N.
     SaturationMeter m_saturation;
+    bool m_saturationActive = false;
 
 public:
 
@@ -45,6 +55,7 @@ public:
     void drawMineralRanking();
     void assignWorkersToMinerals();
     std::vector<BWAPI::Unit> getBaseMinerals() const;
+    std::vector<BWAPI::Unit> getMeasuredMinerals() const;
 
     // functions that are triggered by various BWAPI events from main.cpp
 	void onStart();
